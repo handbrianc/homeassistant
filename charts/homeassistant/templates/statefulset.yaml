@@ -1,0 +1,175 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "homeassistant.fullname" . }}
+  labels:
+    {{- include "homeassistant.labels" . | nindent 4 }}
+spec:
+  # Home Assistant is single-replica by design (RWO /config).
+  replicas: {{ .Values.replicaCount }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  serviceName: {{ include "homeassistant.fullname" . }}-headless
+  selector:
+    matchLabels:
+      {{- include "homeassistant.selectorLabels" . | nindent 6 }}
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        {{- include "homeassistant.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "homeassistant.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.hostNetwork }}
+      # Opt-in for mDNS/SSDP/UPnP discovery; keep cluster DNS working.
+      hostNetwork: true
+      dnsPolicy: {{ .Values.dnsPolicy | default "ClusterFirstWithHostNet" }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      # Allow Home Assistant to flush the recorder database on shutdown.
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      {{- if or .Values.bootstrapConfig.enabled (not (empty .Values.bootstrapConfig.existingConfigMap)) }}
+      # Seed configuration.yaml into an EMPTY /config only. Runs before the HA
+      # container; never touches an existing configuration. Not given the
+      # values securityContext on purpose: it must be able to write into the
+      # (root-owned) /config volume.
+      initContainers:
+        - name: bootstrap-config
+          image: busybox:1.37
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              if [ ! -f /config/configuration.yaml ]; then
+                echo "No /config/configuration.yaml found; seeding from bootstrap ConfigMap"
+                cp /bootstrap-config/configuration.yaml /config/configuration.yaml
+              else
+                echo "/config/configuration.yaml already exists; leaving /config untouched"
+              fi
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: bootstrap-config
+              mountPath: /bootstrap-config
+              readOnly: true
+      {{- end }}
+      containers:
+        - name: homeassistant
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: 8123
+              protocol: TCP
+          {{- if or .Values.envFromSecret .Values.secretEnv .Values.extraEnvFrom }}
+          envFrom:
+            {{- if .Values.envFromSecret }}
+            - secretRef:
+                name: {{ .Values.envFromSecret | quote }}
+            {{- end }}
+            {{- if .Values.secretEnv }}
+            - secretRef:
+                name: {{ include "homeassistant.fullname" . }}-secret
+            {{- end }}
+            {{- with .Values.extraEnvFrom }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- end }}
+          env:
+            - name: TZ
+              value: {{ .Values.timezone | quote }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          # Probes hit the unauthenticated frontend path ("/" answers HTTP 200
+          # without a login; /api/ would 401).
+          startupProbe:
+            httpGet:
+              path: {{ .Values.probes.path | quote }}
+              port: http
+            periodSeconds: {{ .Values.probes.startup.periodSeconds | default 10 }}
+            failureThreshold: {{ .Values.probes.startup.failureThreshold | default 30 }}
+            {{- with .Values.probes.startup.timeoutSeconds }}
+            timeoutSeconds: {{ . }}
+            {{- end }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probes.path | quote }}
+              port: http
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds | default 10 }}
+            failureThreshold: {{ .Values.probes.readiness.failureThreshold | default 3 }}
+            timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds | default 2 }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.probes.path | quote }}
+              port: http
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds | default 30 }}
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold | default 3 }}
+            timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds | default 5 }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            {{- range .Values.usbDevices }}
+            - name: {{ .name }}
+              mountPath: {{ .hostPath }}
+            {{- end }}
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: config
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim | default (printf "%s-config" (include "homeassistant.fullname" .)) }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- if or .Values.bootstrapConfig.enabled (not (empty .Values.bootstrapConfig.existingConfigMap)) }}
+        - name: bootstrap-config
+          configMap:
+            name: {{ include "homeassistant.bootstrapConfigMapName" . }}
+        {{- end }}
+        {{- range .Values.usbDevices }}
+        - name: {{ .name }}
+          hostPath:
+            path: {{ .hostPath }}
+            type: {{ default "CharDevice" .type }}
+        {{- end }}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}

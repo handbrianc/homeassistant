@@ -1,0 +1,41 @@
+schema: spec-driven
+
+context: |
+  Project: Home Assistant on k3s backed by Raspberry Pi 4 nodes.
+  Deliverables: a standalone Helm chart (charts/homeassistant) and portable
+  bash installer scripts (scripts/) that install and update the release.
+  Constraints:
+  - 12-factor: configuration via environment variables; secrets never in git
+    (.env / secrets.env are git-ignored; examples are .env.example /
+    secrets.env.example). HA reads env vars in configuration.yaml via
+    `!env_var VAR [default]` (official docs: home-assistant.io/docs/configuration/yaml).
+  - Target platform: k3s on Raspberry Pi 4 (linux/arm64), but the chart must
+    stay architecture-neutral with sane defaults.
+  - Bash scripts must run on Linux and macOS (Homebrew bash), bash 3.2+
+    compatible, no GNU-only utilities.
+  - Home Assistant is inherently single-replica and stateful (/config on a
+    PVC) — 12-factor is applied as far as practical, documented in docs/12-factor.md.
+  Latest Home Assistant stable at project start: 2026.11.0 (image
+  ghcr.io/home-assistant/home-assistant).
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always include a "Non-goals" section
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+# Example:
+#   operations:
+#     apply:
+#       guidance:
+#         - Keep test summaries concise
+#     archive:
+#       guidance:
+#         - Summarize the archive outcome before finishing

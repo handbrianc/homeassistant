@@ -1,0 +1,126 @@
+# Default values for the homeassistant chart.
+#
+# The key names below are part of a shared contract with the bash installer
+# lane (scripts/ renders values files against exactly these keys), so do not
+# rename keys without updating the contract.
+
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: ghcr.io/home-assistant/home-assistant
+  tag: "2026.11.0"            # pinned; Chart.yaml appVersion must match
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+# Home Assistant is single-replica by design: all state (sessions, recorder,
+# entities) lives in /config, which is mounted ReadWriteOnce. Do not raise this.
+replicaCount: 1
+
+revisionHistoryLimit: 3
+
+# Give Home Assistant time to flush the recorder database on shutdown.
+terminationGracePeriodSeconds: 60
+
+timezone: "UTC"               # -> TZ env var
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+service:
+  type: LoadBalancer          # k3s klipper-lb binds the node IP out of the box
+  port: 8123
+  nodePort: null              # only used when type == NodePort
+  loadBalancerIP: null        # rendered when set (MetalLB etc.)
+  externalTrafficPolicy: null # rendered when set
+
+# hostNetwork is opt-in and enables mDNS/SSDP/UPnP discovery; multicast does
+# not traverse a Service or ordinary pod networking. When true, dnsPolicy
+# defaults to ClusterFirstWithHostNet so cluster DNS still resolves.
+hostNetwork: false
+dnsPolicy: null               # when hostNetwork: ClusterFirstWithHostNet
+
+# USB radios (Zigbee/Z-Wave) passed through from the host:
+# usbDevices:
+#   - name: zigbee
+#     hostPath: /dev/ttyUSB0
+#     type: CharDevice          # optional, default CharDevice
+usbDevices: []
+
+persistence:
+  enabled: true
+  existingClaim: null
+  storageClass: null          # k3s default local-path; longhorn for replication
+  accessMode: ReadWriteOnce
+  size: 5Gi
+
+# External Secret referenced via envFrom (scripts/install.sh creates it from
+# secrets.env). Set to "" to disable. Keys are read by Home Assistant with
+# !env_var in configuration.yaml.
+envFromSecret: "homeassistant-secrets"
+
+# Chart-managed Secret fallback for pure-helm users (no installer scripts).
+# Rendered only when non-empty. Prefer the external envFromSecret in real
+# deployments; the scripts lane never sets this.
+secretEnv: {}                 # chart-managed Secret fallback (pure-helm users)
+
+extraEnv: []                  # [{name: X, value: Y}] or valueFrom entries
+extraEnvFrom: []              # extra envFrom sources (configMapRef/secretRef)
+
+probes:
+  path: "/"                   # unauthenticated HTTP 200; /api/ would 401
+  startup: {periodSeconds: 10, failureThreshold: 30}   # ~5 min budget
+  readiness: {periodSeconds: 10, failureThreshold: 3, timeoutSeconds: 2}
+  liveness: {periodSeconds: 30, failureThreshold: 3, timeoutSeconds: 5}
+
+# CPU is deliberately NOT limited: a CPU limit throttles Home Assistant startup
+# (component discovery, frontend build) on Pi-class nodes. The memory limit
+# keeps a runaway recorder or integration from eating the node.
+resources:
+  requests:
+    cpu: 200m
+    memory: 512Mi
+  limits:
+    memory: 1.5Gi
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# The official image runs as root to manage /config; PUID/PGID-style images
+# can set runAsUser here instead.
+podSecurityContext: {}
+securityContext: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: homeassistant.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+extraVolumes: []
+extraVolumeMounts: []
+
+bootstrapConfig:
+  enabled: true
+  existingConfigMap: ""       # alternative source for bootstrap config
+  configuration: |
+    # Bootstrap configuration written on first boot only (empty /config).
+    # Secrets are provided as environment variables (12-factor) and read with
+    # !env_var. Extend this file in /config; it is never overwritten.
+    default_config:
+    logger:
+      default: warning
+    # Example:
+    # recorder:
+    #   db_url: !env_var HASS_RECORDER_DB_URL

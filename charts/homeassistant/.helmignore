@@ -1,0 +1,30 @@
+# Patterns to ignore when building the chart package (helm package / template).
+# Keep local state, secrets and editor noise out of published charts.
+.DS_Store
+.git/
+.gitignore
+.gitlab-ci.yml
+.ci/
+CODEOWNERS
+OWNERS
+.prow.yaml
+AUTHORS.md
+CONTRIBUTING.md
+SECURITY.md
+README.md
+LICENSE
+*.swp
+*~
+*.orig
+*.rej
+*.log
+tmp/
+node_modules/
+openspec/
+docs/
+scripts/
+.env*
+secrets.env*
+kubeconfig
+*.kubeconfig
+values-*.local.yaml

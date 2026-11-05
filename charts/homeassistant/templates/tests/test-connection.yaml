@@ -1,0 +1,26 @@
+{{/*
+helm test hook: hit the Home Assistant frontend through the main Service the
+way an in-cluster client would. A Pod hook is the simplest reliable pattern;
+`-e` keeps the wget exit code, `head -c 200` keeps the test log short.
+*/}}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "homeassistant.fullname" . }}-test-connection"
+  labels:
+    {{- include "homeassistant.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+    - name: wget
+      image: busybox:1.37
+      imagePullPolicy: IfNotPresent
+      command:
+        - /bin/sh
+        - -ec
+        - |
+          wget -q -T 10 -O /tmp/ha-resp 'http://{{ include "homeassistant.fullname" . }}:{{ .Values.service.port }}{{ .Values.probes.path }}'
+          head -c 200 /tmp/ha-resp

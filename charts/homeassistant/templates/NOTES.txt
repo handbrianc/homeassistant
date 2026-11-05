@@ -1,0 +1,56 @@
+{{- $fullName := include "homeassistant.fullname" . -}}
+Home Assistant {{ .Chart.AppVersion }} has been installed as release
+"{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+{{- if eq .Values.service.type "NodePort" }}
+
+1. Open the Home Assistant frontend:
+
+   export NODE_PORT=$(kubectl get --namespace {{ .Release.Namespace }} -o jsonpath="{.spec.ports[0].nodePort}" services {{ $fullName }})
+   export NODE_IP=$(kubectl get nodes --namespace {{ .Release.Namespace }} -o jsonpath="{.items[0].status.addresses[0].address}")
+   echo "Home Assistant frontend: http://$NODE_IP:$NODE_PORT"
+
+   Fallback (works for any service type):
+     kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ $fullName }} 8080:{{ .Values.service.port }}
+     # then open http://127.0.0.1:8080
+{{- else if eq .Values.service.type "LoadBalancer" }}
+
+1. Open the Home Assistant frontend:
+
+   NOTE: It may take a few minutes for the LoadBalancer IP to become available.
+   On k3s, klipper-lb binds a node IP while no external load balancer exists.
+
+   kubectl get svc --namespace {{ .Release.Namespace }} {{ $fullName }}
+   export SERVICE_IP=$(kubectl get svc --namespace {{ .Release.Namespace }} {{ $fullName }} -o jsonpath="{.status.loadBalancer.ingress[0].ip}")
+   echo "Home Assistant frontend: http://$SERVICE_IP:{{ .Values.service.port }}"
+
+   Fallback (works for any service type):
+     kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ $fullName }} 8080:{{ .Values.service.port }}
+     # then open http://127.0.0.1:8080
+{{- else }}
+
+1. Open the Home Assistant frontend ({{ .Values.service.type }} service):
+
+   kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ $fullName }} 8080:{{ .Values.service.port }}
+   # then open http://127.0.0.1:8080
+{{- end }}
+
+2. Configuration and secrets:
+
+   - Home Assistant reads its configuration from /config on persistent
+     storage. A minimal configuration.yaml is seeded ONLY on first boot (when
+     /config is empty) by an init container; an existing configuration is
+     never overwritten. Editing the bootstrap ConfigMap afterwards has no
+     effect on an already-seeded /config.
+
+   - Secrets are injected as environment variables via envFrom (values keys:
+     envFromSecret and secretEnv) and are referenced in configuration.yaml
+     with !env_var. Secret material is never stored in ConfigMaps.
+
+3. Update this release (chart, image tag and values):
+
+     bash scripts/update.sh
+
+4. Verify the deployment:
+
+     helm test {{ .Release.Name }} --namespace {{ .Release.Namespace }}

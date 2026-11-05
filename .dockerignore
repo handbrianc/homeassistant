@@ -1,0 +1,23 @@
+# Keep image/CI build contexts free of secrets and local state.
+.git
+.gitignore
+.codegraph
+node_modules
+
+# Secrets and local environment files — never enter a build context
+.env
+.env.*
+secrets.env
+secrets.env.*
+kubeconfig
+*.kubeconfig
+kube/
+
+# Local artifacts
+*.tgz
+tmp/
+*.log
+
+# OS noise
+.DS_Store
+Thumbs.db

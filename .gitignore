@@ -1,0 +1,50 @@
+# =============================================================================
+# Secrets & environment — never commit real values
+# =============================================================================
+.env
+.env.*
+!.env.example
+secrets.env
+secrets.env.*
+!secrets.env.example
+
+# Local values overrides (uncommitted)
+values-*.local.yaml
+values-local.yaml
+
+# kubeconfig / cluster credentials
+kubeconfig
+*.kubeconfig
+kube/
+
+# =============================================================================
+# Helm packaging
+# =============================================================================
+*.tgz
+
+# Vendored chart dependencies (if ever added)
+charts/*/charts/
+charts/*/tmp/
+
+# =============================================================================
+# Tooling / local state (regenerable)
+# =============================================================================
+# CodeGraph local index
+.codegraph/
+
+# Node modules (openspec CLI, etc.)
+node_modules/
+
+# =============================================================================
+# OS / editor noise
+# =============================================================================
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.idea/
+.vscode/
+
+# Logs & scratch
+*.log
+tmp/

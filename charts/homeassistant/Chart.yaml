@@ -1,0 +1,16 @@
+apiVersion: v2
+name: homeassistant
+description: Home Assistant on Kubernetes - single-replica StatefulSet with persistent /config, environment-driven configuration and defaults tuned for k3s on Raspberry Pi 4
+type: application
+version: 0.1.0
+appVersion: "2026.11.0"
+kubeVersion: ">=1.25.0-0"
+home: https://www.home-assistant.io
+sources:
+  - https://github.com/home-assistant/core
+keywords:
+  - home-assistant
+  - smart-home
+  - k3s
+  - raspberry-pi
+  - arm64

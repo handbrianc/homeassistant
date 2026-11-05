@@ -1,0 +1,16 @@
+{{/*
+Bootstrap ConfigMap: seed configuration for the FIRST boot of an empty
+/config. Rendered only when bootstrapConfig.enabled is on and the user has not
+pointed the init container at an existing ConfigMap instead.
+*/}}
+{{- if and .Values.bootstrapConfig.enabled (empty .Values.bootstrapConfig.existingConfigMap) -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "homeassistant.bootstrapConfigMapName" . }}
+  labels:
+    {{- include "homeassistant.labels" . | nindent 4 }}
+data:
+  configuration.yaml: |
+{{ .Values.bootstrapConfig.configuration | nindent 4 }}
+{{- end }}
