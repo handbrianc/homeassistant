@@ -65,10 +65,10 @@ require_cmds() {
     log_error "Required command not found: $_rq_cmd"
     case "$_rq_cmd" in
       helm)
-        log_error "  hint: apt install helm        (Linux)  |  brew install helm     (macOS/Homebrew)"
+        log_error "  hint: curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-4 | bash  (Linux)  |  brew install helm  (macOS/Homebrew)"
         ;;
       kubectl)
-        log_error "  hint: apt install kubectl     (Linux)  |  brew install kubectl (macOS/Homebrew)"
+        log_error "  hint: k8s apt repo / dl.k8s.io binary (see README, Prerequisites)  (Linux)  |  brew install kubectl (macOS/Homebrew)"
         ;;
       bash)
         log_error "  hint: brew install bash       (macOS/Homebrew; scripts need bash 3.2+)"
@@ -85,17 +85,17 @@ require_cmds() {
   fi
 }
 
-require_helm_v3() {
+require_helm() {
   _hv="$(helm version --short 2>/dev/null || true)"
   case "${_hv:-}" in
-    v3.*)
+    v3.*|v4.*)
       log_info "helm version: ${_hv%% *}"
       ;;
     "")
-      die "Could not determine the helm version (helm v3 required). Is 'helm' on PATH?"
+      die "Could not determine the helm version (helm v3+ required). Is 'helm' on PATH?"
       ;;
     *)
-      die "helm v3 is required, found: '${_hv%% *}'. Update helm (apt install helm / brew install helm)."
+      die "helm v3+ is required, found: '${_hv%% *}'. Update helm (get-helm-4 script / snap / brew install helm)."
       ;;
   esac
 }

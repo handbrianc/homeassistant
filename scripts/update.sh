@@ -140,7 +140,7 @@ fi
 # --- Step 3: toolchain + cluster checks (skipped in dry-run) ------------------
 if [ "$HC_DRY_RUN" != "1" ]; then
   require_cmds helm kubectl
-  require_helm_v3
+  require_helm
   require_cluster_reachable
 fi
 

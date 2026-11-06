@@ -19,12 +19,28 @@ secrets.env.example     Home Assistant secrets example (copy to secrets.env)
 | Tool | Linux | macOS (Homebrew) |
 |---|---|---|
 | bash 3.2+ (Homebrew bash recommended on macOS) | system | `brew install bash` |
-| Helm v3 | see [helm docs](https://helm.sh/docs/intro/install/) | `brew install helm` |
-| kubectl | see [kubernetes docs](https://kubernetes.io/docs/tasks/tools/) | `brew install kubectl` |
+| Helm v3 or v4 | one-liner below | `brew install helm` |
+| kubectl (within 1 minor of your cluster) | one-liner below | `brew install kubectl` |
 | a k3s cluster | see [docs/rpi4-k3s.md](docs/rpi4-k3s.md) | — |
 
 `kubeconfig` access to the cluster must be configured before installing
 (k3s writes it to `/etc/rancher/k3s/k3s.yaml` on the server node).
+
+Install on Linux (Ubuntu/Debian shown; the same two binaries work on any distro):
+
+```bash
+# Helm (official installer script; installs to /usr/local/bin via sudo)
+curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-4 | bash
+
+# kubectl — latest stable, self-resolving version (no repo needed)
+curl -fsSLo /tmp/kubectl "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+sudo install -o root -g root -m 0755 /tmp/kubectl /usr/local/bin/kubectl
+
+# or, package-managed kubectl (auto-updates; bump v1.37 to your minor)
+#   https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/
+
+helm version && kubectl version --client
+```
 
 ## Quickstart
 
