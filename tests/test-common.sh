@@ -95,7 +95,10 @@ librun "setup_cleanup_trap; register_cleanup_file '$_cf'; exit 0" >/dev/null 2>&
 [ ! -f "$_cf" ]; chk $? "EXIT trap removes registered file"
 
 section "helm_release_args / print_helm_cmd"
-_hra='NAMESPACE=homeassistant; RELEASE_NAME=homeassistant; CHART_DIR=/x/chart;
+# Rollback flag is version-aware. PATH is pinned and HC_HELM_MAJOR cleared so
+# "no detectable helm" is deterministic even on dev machines with helm; the
+# preview default is the helm 4 flag name (what prereqs installs today).
+_hra='PATH="/usr/bin:/bin"; HC_HELM_MAJOR=; NAMESPACE=homeassistant; RELEASE_NAME=homeassistant; CHART_DIR=/x/chart;
 HELM_TIMEOUT=10m; VALUES_EXTRA=; ENV_FROM_SECRET=homeassistant-secrets;
 IMAGE_TAG=2026.11.0; helm_release_args /tmp/gen; print_helm_cmd'
 _hra_out="$(librun "$_hra")"
@@ -105,8 +108,10 @@ printf '%s' "$_hra_out" | grep -qF -- '--namespace homeassistant'
 chk $? "args carry --namespace"
 printf '%s' "$_hra_out" | grep -qF -- '--create-namespace'
 chk $? "args carry --create-namespace"
-printf '%s' "$_hra_out" | grep -qF -- '--atomic'
-chk $? "args carry --atomic"
+printf '%s' "$_hra_out" | grep -qF -- '--rollback-on-failure'
+chk $? "args carry --rollback-on-failure (no helm: preview default)"
+! printf '%s' "$_hra_out" | grep -qF -- '--atomic'
+chk $? "args never carry deprecated --atomic when helm is absent"
 printf '%s' "$_hra_out" | grep -qF -- '--timeout 10m'
 chk $? "args carry --timeout"
 printf '%s' "$_hra_out" | grep -qF -- '-f /tmp/gen'
@@ -120,6 +125,25 @@ chk $? "extra values file appended as second -f"
 _hpc="$(librun "RELEASE_NAME=r; CHART_DIR=/c; NAMESPACE=n; HELM_TIMEOUT=10m; VALUES_EXTRA=; ENV_FROM_SECRET=; IMAGE_TAG=1; helm_release_args /g; print_helm_cmd")"
 printf '%s' "$_hpc" | grep -q '^helm upgrade --install r /c'
 chk $? "print_helm_cmd renders the full command line"
+
+# Version-aware rollback flag: detected v3 stub → --atomic, v4 stub →
+# --rollback-on-failure; require_helm's cache short-circuits the live parse.
+_hra_ver='HC_HELM_MAJOR=; NAMESPACE=n; RELEASE_NAME=r; CHART_DIR=/c;
+HELM_TIMEOUT=10m; VALUES_EXTRA=; ENV_FROM_SECRET=; IMAGE_TAG=1;
+helm_release_args /g; print_helm_cmd'
+_hra_v3="$(HC_STUB_HELM_VERSION=v3.16.2 PATH="$STUBS:$BASE_PATH" librun "$_hra_ver")"
+printf '%s' "$_hra_v3" | grep -qF -- '--atomic'
+chk $? "helm 3 args carry --atomic"
+! printf '%s' "$_hra_v3" | grep -qF -- '--rollback-on-failure'
+chk $? "helm 3 args never carry --rollback-on-failure"
+_hra_v4="$(HC_STUB_HELM_VERSION=v4.0.0 PATH="$STUBS:$BASE_PATH" librun "$_hra_ver")"
+printf '%s' "$_hra_v4" | grep -qF -- '--rollback-on-failure'
+chk $? "helm 4 args carry --rollback-on-failure"
+! printf '%s' "$_hra_v4" | grep -qF -- '--atomic'
+chk $? "helm 4 args never carry deprecated --atomic"
+_hra_c="$(HC_HELM_MAJOR=3 librun "NAMESPACE=n; RELEASE_NAME=r; CHART_DIR=/c; HELM_TIMEOUT=10m; VALUES_EXTRA=; ENV_FROM_SECRET=; IMAGE_TAG=1; helm_release_args /g; print_helm_cmd")"
+printf '%s' "$_hra_c" | grep -qF -- '--atomic'
+chk $? "cached HC_HELM_MAJOR=3 forces --atomic without live helm"
 
 section "create_or_update_secret"
 secf="$TESTS_TMP/sec.env"

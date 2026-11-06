@@ -40,7 +40,7 @@ chk_grep "$TESTS_TMP/dry.out" "BEGIN generated values" "generated values printed
 chk_grep "$TESTS_TMP/dry.out" 'tag: "2026.11.0"' "chart-default image tag rendered"
 chk_grep "$TESTS_TMP/dry.out" 'envFromSecret: ""' "no secrets -> empty envFromSecret"
 chk_grep "$TESTS_TMP/dry.out" "Secrets file not found" "missing secrets warned"
-chk_regex "$TESTS_TMP/dry.out" 'upgrade --install homeassistant .* --create-namespace --atomic' "helm command carries create-namespace + atomic"
+chk_regex "$TESTS_TMP/dry.out" 'upgrade --install homeassistant .* --create-namespace --rollback-on-failure' "helm command carries create-namespace + rollback-on-failure (preview default)"
 chk_grep "$TESTS_TMP/dry.out" "Dry-run complete" "dry-run completes"
 env -i PATH="$BASE_PATH" DRY_RUN=1 HOME="$TESTS_TMP/home" bash "$R/scripts/install.sh" >"$TESTS_TMP/dry2.out" 2>&1
 [ $? = "0" ]; chk $? "DRY_RUN=1 environment also drives dry-run"
@@ -108,6 +108,8 @@ chk_grep "$TESTS_TMP/e2e.out" "Home Assistant installation complete." "completio
 chk_grep "$TESTS_TMP/e2e.log" "helm upgrade --install" "mock log: helm upgrade served the call"
 chk_grep "$TESTS_TMP/e2e.log" "rollout status" "mock log: rollout wait served the call"
 chk_grep "$TESTS_TMP/e2e.log" "create secret generic" "mock log: secret create served the call"
+chk_grep "$TESTS_TMP/e2e.log" "--atomic" "mock log: helm 3 upgrade carries --atomic"
+chk_nogrep "$TESTS_TMP/e2e.log" "--rollback-on-failure" "mock log: no helm 4 flag before the v4 run"
 chk_nogrep "$TESTS_TMP/e2e.out" "s3cr3tvalue" "secret VALUE never printed (e2e)"
 chk_nogrep "$TESTS_TMP/e2e.log" "s3cr3tvalue" "secret VALUE never in mock log"
 
@@ -117,6 +119,7 @@ chk_grep "$TESTS_TMP/e2e-v2.out" "helm v3+ is required" "v2 rejection message"
 _e2e "$TESTS_TMP/e2e-v4.out" HC_STUB_HELM_VERSION=v4.0.0
 [ $? = "0" ]; chk $? "helm v4 accepted in e2e"
 chk_grep "$TESTS_TMP/e2e-v4.out" "helm version: v4.0.0" "v4 version logged"
+chk_grep "$TESTS_TMP/e2e.log" "--rollback-on-failure" "mock log: helm 4 upgrade carries --rollback-on-failure"
 _e2e "$TESTS_TMP/e2e-unreach.out" HC_STUB_NODES_FAIL=1
 [ $? = "1" ]; chk $? "unreachable cluster aborts"
 chk_grep "$TESTS_TMP/e2e-unreach.out" "not reachable" "unreachable message names KUBECONFIG"

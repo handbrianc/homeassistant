@@ -89,6 +89,8 @@ require_helm() {
   _hv="$(helm version --short 2>/dev/null || true)"
   case "${_hv:-}" in
     v3.*|v4.*)
+      HC_HELM_MAJOR="${_hv%%.*}"
+      HC_HELM_MAJOR="${HC_HELM_MAJOR#v}"
       log_info "helm version: ${_hv%% *}"
       ;;
     "")
@@ -97,6 +99,22 @@ require_helm() {
     *)
       die "helm v3+ is required, found: '${_hv%% *}'. Update helm (get-helm-4 script / snap / brew install helm)."
       ;;
+  esac
+}
+
+# helm_major_version — prints the detected helm major version ("3", "4", ...).
+# Prefers HC_HELM_MAJOR (cached by require_helm); otherwise parses a live
+# `helm version --short`. Prints nothing when helm is absent or its version
+# cannot be parsed — callers treat that as "use the helm 4+ flag names".
+helm_major_version() {
+  if [ -n "${HC_HELM_MAJOR:-}" ]; then
+    printf '%s\n' "$HC_HELM_MAJOR"
+    return 0
+  fi
+  _hmv="$(helm version --short 2>/dev/null || true)"
+  case "$_hmv" in
+    v3.*) printf '3\n' ;;
+    v4.*) printf '4\n' ;;
   esac
 }
 
@@ -370,7 +388,9 @@ render_values_file() {
 # --- Shared helm invocation ------------------------------------------------------
 # helm_release_args GENERATED_VALUES_FILE [EXTRA_VALUES_FILE]
 # Fills the global (bash 3.2-compatible, indexed) array HELM_ARGS with the
-# shared `helm upgrade --install` arguments.
+# shared `helm upgrade --install` arguments. The rollback flag follows the
+# detected helm generation: --atomic on helm 3, --rollback-on-failure on
+# helm 4+ (--atomic is deprecated there) and when helm is undetectable.
 helm_release_args() {
   _hra_generated="$1"
   _hra_extra="${2:-}"
@@ -378,7 +398,10 @@ helm_release_args() {
   HELM_ARGS+=("upgrade" "--install" "$RELEASE_NAME" "$CHART_DIR")
   HELM_ARGS+=("--namespace" "$NAMESPACE")
   HELM_ARGS+=("--create-namespace")
-  HELM_ARGS+=("--atomic")
+  case "$(helm_major_version)" in
+    3) HELM_ARGS+=("--atomic") ;;
+    *) HELM_ARGS+=("--rollback-on-failure") ;;
+  esac
   HELM_ARGS+=("--timeout" "$HELM_TIMEOUT")
   HELM_ARGS+=("-f" "$_hra_generated")
   if [ -n "$_hra_extra" ]; then

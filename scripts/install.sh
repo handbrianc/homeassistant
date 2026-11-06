@@ -7,8 +7,11 @@
 # a values file from the environment and runs:
 #
 #   helm upgrade --install <release> charts/homeassistant \
-#     --namespace <ns> --create-namespace --atomic --timeout <t> \
+#     --namespace <ns> --create-namespace <rollback-flag> --timeout <t> \
 #     -f <generated-values> [--set envFromSecret=...] [--set image.tag=...]
+#
+# <rollback-flag> is --atomic on helm 3 and --rollback-on-failure on helm 4+
+# (helm 4 renamed and deprecated --atomic).
 #
 # Usage:
 #   scripts/install.sh [-h|--help] [--dry-run] [--namespace NS]
