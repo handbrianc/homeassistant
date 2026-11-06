@@ -126,7 +126,7 @@ chart never overwrites an existing configuration**.
 | Controller | StatefulSet, 1 replica | HA is stateful; RWO-PVC-safe rollouts |
 | Image | `ghcr.io/home-assistant/home-assistant:2026.11.0` | official, multi-arch (arm64) |
 | Persistence | 5Gi PVC at `/config`, cluster-default storage class | k3s `local-path`; set `STORAGE_CLASS=longhorn` for replication |
-| Service | `LoadBalancer`, port 8123 | k3s klipper-lb binds the node IP out of the box |
+| Service | `LoadBalancer`, port 8123 — `ClusterIP` when ingress-fronted | k3s klipper-lb binds the node IP out of the box; an enabled ingress fronts the pod service instead (ClusterIP only, enforced) |
 | Probes | startup ≤5 min on `/` | HA first boot is slow on Pi-class nodes |
 | Resources | req 200m/512Mi, limit 1.5Gi (no CPU limit) | CPU limits throttle HA startup on Pi nodes |
 | Bootstrap config | minimal `configuration.yaml` on first boot only | works immediately, never clobbers user edits |
@@ -138,22 +138,25 @@ and the [design contract](openspec/changes/archive/2026-11-05-initialize-homeass
 
 ## Accessing Home Assistant
 
-* **LoadBalancer (default)** — the service URL printed by `install.sh`; on
-  k3s, klipper-lb binds port 8123 on every node IP.
-* **NodePort** — set `SERVICE_TYPE=NodePort` and optionally `NODE_PORT=30123`.
-* **Ingress (auto)** — bootstrap detects an ingress controller (Traefik ships
-  with k3s) and defaults the ingress on: `INGRESS_ENABLED=true`,
-  `INGRESS_CLASS=<detected>`, TLS on with a self-signed certificate until you
-  provision one, and a catch-all rule when `INGRESS_HOST` is empty (any
-  hostname reaching the ingress works, e.g. `https://<node-ip>`). Set
-  `INGRESS_HOST=homeassistant.example.com` for a host-specific rule.
-  * **TLS certificates** — with cert-manager (auto-detected) set
-    `INGRESS_TLS_ISSUER`: bootstrap then defaults `INGRESS_TLS_CERTIFICATE=true`
-    and the chart renders a `Certificate` resource that issues and renews the
-    `<release>-tls` Secret (`INGRESS_TLS_ISSUER_KIND` defaults to
-    `ClusterIssuer`). Or provide a PEM pair via
-    `INGRESS_TLS_CERT_FILE`/`INGRESS_TLS_KEY_FILE` (applied as the
-    `<release>-tls` Secret).
+* **LoadBalancer (default without ingress)** — the service URL printed by
+  `install.sh`; on k3s, klipper-lb binds port 8123 on every node IP.
+* **NodePort (no ingress, no LB)** — set `SERVICE_TYPE=NodePort` and
+  optionally `NODE_PORT=30123`.
+* **Ingress (auto, default exposure when a controller exists)** — bootstrap
+  detects an ingress controller (Traefik ships with k3s) and defaults the
+  ingress on: `INGRESS_ENABLED=true`, `INGRESS_CLASS=<detected>`, TLS on, and
+  a catch-all rule when `INGRESS_HOST` is empty (any hostname reaching the
+  ingress works, e.g. `https://<node-ip>`). Set
+  `INGRESS_HOST=homeassistant.example.com` for a host-specific rule. The
+  ingress fronts the pod service, so the service is `ClusterIP` (install.sh
+  aborts on any other `SERVICE_TYPE` with the ingress enabled).
+  * **TLS certificates** — issued by cert-manager only (assumed present):
+    set `INGRESS_TLS_ISSUER` and the chart renders a `Certificate` resource
+    that issues and renews the `<release>-tls` Secret
+    (`INGRESS_TLS_ISSUER_KIND` defaults to `ClusterIssuer`). TLS on without an
+    issuer aborts. Use `INGRESS_TLS_DNS_NAMES` for a wildcard or multi-domain
+    certificate, e.g. `INGRESS_TLS_DNS_NAMES=*.example.com,example.com`
+    (empty = the `INGRESS_HOST` entry).
   * `INGRESS_TRUSTED_PROXIES` (default: the k3s pod CIDR) seeds Home
     Assistant's `http.trusted_proxies` — without it, logins through the
     ingress fail with HTTP 400.

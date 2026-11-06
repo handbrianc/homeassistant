@@ -30,7 +30,7 @@ chk_grep "$TESTS_TMP/dry.out" "DRY-RUN" "dry-run announced"
 chk_grep "$TESTS_TMP/dry.out" "BEGIN generated values" "generated values printed"
 chk_regex "$TESTS_TMP/dry.out" 'helm history homeassistant -n "homeassistant"' "history command in would-run list"
 chk_grep "$TESTS_TMP/dry.out" "skipping the full manifest render" "no-helm dry-run notes the skipped render"
-chk_grep "$TESTS_TMP/dry.out" "cert=false" "config line shows certificate mode"
+chk_grep "$TESTS_TMP/dry.out" "tls=false" "config line shows TLS off"
 chk_grep "$TESTS_TMP/dry.out" "Dry-run complete" "dry-run completes"
 env -i PATH="$BASE_PATH" HOME="$TESTS_TMP/home" DRY_RUN=1 bash "$R/scripts/update.sh" \
   >"$TESTS_TMP/dry2.out" 2>&1

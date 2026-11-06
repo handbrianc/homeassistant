@@ -172,11 +172,10 @@ vals="$TESTS_TMP/vals.yaml"
 printf 'MQTT_PASSWORD=render-secret\n' > "$TESTS_TMP/vals-secret.env"
 _rvf="SECRETS_FILE='$TESTS_TMP/vals-secret.env'; NAMESPACE=ns; SECRET_NAME=ns-secrets; create_or_update_secret;
 IMAGE_TAG=2026.10.0; TIMEZONE=Europe/Berlin; NODE_ARCH=arm64;
-STORAGE_CLASS=longhorn; STORAGE_SIZE=8Gi; SERVICE_TYPE=LoadBalancer;
+STORAGE_CLASS=longhorn; STORAGE_SIZE=8Gi; SERVICE_TYPE=ClusterIP;
 SERVICE_PORT=8123; LOADBALANCER_IP=1.2.3.4; NODE_PORT=;
 INGRESS_ENABLED=true; INGRESS_CLASS=traefik; INGRESS_HOST=ha.example.com;
 INGRESS_TLS_ENABLED=true; INGRESS_TLS_SECRET_NAME=ha-tls; INGRESS_TLS_ISSUER=letsencrypt-prod;
-INGRESS_TLS_CERTIFICATE=false;
 INGRESS_TRUSTED_PROXIES=10.42.0.0/16,10.43.0.0/16;
 HOST_NETWORK=true; render_values_file '$vals'"
 librun_stub "$_rvf" >/dev/null 2>&1
@@ -185,13 +184,18 @@ chk_grep "$vals" 'tag: "2026.10.0"' "render: image tag"
 chk_grep "$vals" 'timezone: "Europe/Berlin"' "render: timezone"
 chk_grep "$vals" 'storageClass: "longhorn"' "render: storage class"
 chk_grep "$vals" 'size: "8Gi"' "render: storage size"
-chk_grep "$vals" 'type: "LoadBalancer"' "render: service type"
+chk_grep "$vals" 'type: "ClusterIP"' "render: service type (ingress-fronted)"
 chk_grep "$vals" 'loadBalancerIP: "1.2.3.4"' "render: loadBalancerIP"
 chk_grep "$vals" 'enabled: true' "render: ingress enabled"
 chk_grep "$vals" 'className: "traefik"' "render: ingress class"
 chk_grep "$vals" 'host: "ha.example.com"' "render: ingress host"
 chk_grep "$vals" 'pathType: Prefix' "render: ingress pathType"
-chk_grep "$vals" 'cert-manager.io/cluster-issuer: "letsencrypt-prod"' "render: cert-manager annotation"
+! grep -qF 'cert-manager.io/cluster-issuer' "$vals"
+chk $? "render: cluster-issuer annotation never rendered"
+chk_grep "$vals" 'certificate:' "render: certificate block always on with TLS"
+chk_grep "$vals" 'name: "letsencrypt-prod"' "render: certificate issuerRef name"
+chk_grep "$vals" '- "ha.example.com"' "render: certificate dnsNames from host"
+chk_grep "$vals" 'secretName: "ha-tls"' "render: certificate secretName shared"
 chk_grep "$vals" 'trustedProxies:' "render: trustedProxies key"
 chk_grep "$vals" '- "10.42.0.0/16"' "render: trusted proxy entry"
 chk_grep "$vals" '- "10.43.0.0/16"' "render: trusted proxies comma-split"
@@ -220,7 +224,7 @@ chk $? "TLS bool message names the variable"
 # Hostless catch-all render: INGRESS_HOST empty -> rule without host key,
 # TLS secret name defaults to <release>-tls, no tls hosts list.
 vals3="$TESTS_TMP/vals-hostless.yaml"
-librun_stub "SECRETS_FILE=/x; NAMESPACE=ns; SECRET_NAME=ns-secrets; create_or_update_secret; apply_defaults; ENV_FROM_SECRET=''; INGRESS_ENABLED=true; INGRESS_CLASS=nginx; INGRESS_TLS_ENABLED=true; render_values_file '$vals3'" >/dev/null 2>&1
+librun_stub "SECRETS_FILE=/x; NAMESPACE=ns; SECRET_NAME=ns-secrets; create_or_update_secret; apply_defaults; ENV_FROM_SECRET=''; INGRESS_ENABLED=true; INGRESS_CLASS=nginx; INGRESS_TLS_ENABLED=true; INGRESS_TLS_ISSUER=letsencrypt-prod; render_values_file '$vals3'" >/dev/null 2>&1
 chk_grep "$vals3" 'enabled: true' "hostless render: ingress enabled"
 ! grep -qF 'host:' "$vals3"
 chk $? "hostless render: no host key anywhere (catch-all)"
@@ -228,10 +232,10 @@ grep -q '^    -$' "$vals3"
 chk $? "hostless render: dash-only list entry"
 chk_grep "$vals3" 'secretName: "homeassistant-tls"' "hostless render: default TLS secret name <release>-tls"
 
-# Certificate mode: issuer set -> ingress.certificate block, shim annotation
-# suppressed; kind defaults to ClusterIssuer, overridable; no issuer -> skip.
+# Certificate block: TLS on -> always rendered with the issuer; kind defaults
+# to ClusterIssuer, overridable; dnsNames default to INGRESS_HOST.
 vals4="$TESTS_TMP/vals-cert.yaml"
-librun_stub "SECRETS_FILE=/x; NAMESPACE=ns; SECRET_NAME=ns-secrets; create_or_update_secret; apply_defaults; ENV_FROM_SECRET=''; INGRESS_ENABLED=true; INGRESS_HOST=ha.example.com; INGRESS_TLS_ENABLED=true; INGRESS_TLS_CERTIFICATE=true; INGRESS_TLS_ISSUER=letsencrypt-prod; render_values_file '$vals4'" >/dev/null 2>&1
+librun_stub "SECRETS_FILE=/x; NAMESPACE=ns; SECRET_NAME=ns-secrets; create_or_update_secret; apply_defaults; ENV_FROM_SECRET=''; INGRESS_ENABLED=true; INGRESS_HOST=ha.example.com; INGRESS_TLS_ENABLED=true; INGRESS_TLS_ISSUER=letsencrypt-prod; render_values_file '$vals4'" >/dev/null 2>&1
 chk_grep "$vals4" 'certificate:' "certificate mode: block rendered"
 chk_grep "$vals4" 'name: "letsencrypt-prod"' "certificate mode: issuerRef name"
 chk_grep "$vals4" 'kind: "ClusterIssuer"' "certificate mode: default issuer kind"
@@ -240,16 +244,12 @@ chk_grep "$vals4" 'secretName: "homeassistant-tls"' "certificate mode: secretNam
 ! grep -qF 'cert-manager.io/cluster-issuer' "$vals4"
 chk $? "certificate mode: cluster-issuer annotation suppressed"
 vals5="$TESTS_TMP/vals-cert-kind.yaml"
-librun_stub "SECRETS_FILE=/x; NAMESPACE=ns; SECRET_NAME=ns-secrets; create_or_update_secret; apply_defaults; ENV_FROM_SECRET=''; INGRESS_TLS_ENABLED=true; INGRESS_TLS_CERTIFICATE=true; INGRESS_TLS_ISSUER=letsencrypt-prod; INGRESS_TLS_ISSUER_KIND=Issuer; render_values_file '$vals5'" >/dev/null 2>&1
+librun_stub "SECRETS_FILE=/x; NAMESPACE=ns; SECRET_NAME=ns-secrets; create_or_update_secret; apply_defaults; ENV_FROM_SECRET=''; INGRESS_TLS_ENABLED=true; INGRESS_TLS_ISSUER=letsencrypt-prod; INGRESS_TLS_ISSUER_KIND=Issuer; render_values_file '$vals5'" >/dev/null 2>&1
 chk_grep "$vals5" 'kind: "Issuer"' "certificate mode: issuer kind override"
-vals6="$TESTS_TMP/vals-cert-noissuer.yaml"
-librun_stub "SECRETS_FILE=/x; NAMESPACE=ns; SECRET_NAME=ns-secrets; create_or_update_secret; apply_defaults; ENV_FROM_SECRET=''; INGRESS_TLS_ENABLED=true; INGRESS_TLS_CERTIFICATE=true; render_values_file '$vals6'" >/dev/null 2>&1
-! grep -qF 'certificate:' "$vals6"
-chk $? "certificate mode without issuer: no certificate block"
-expect_fail "render rejects bad INGRESS_TLS_CERTIFICATE" env HC_VAL=maybe bash -c \
-  '. "$0/scripts/lib/common.sh"; SECRETS_FILE=/x; NAMESPACE=ns; SECRET_NAME=ns-secrets; INGRESS_ENABLED=true; INGRESS_TLS_ENABLED=true; HOST_NETWORK=false; INGRESS_TLS_CERTIFICATE="$HC_VAL"; render_values_file /dev/null' "$REPO_ROOT"
-grep -q "INGRESS_TLS_CERTIFICATE must be 'true' or 'false'" "$TESTS_TMP/expect-fail.out"
-chk $? "certificate bool message names the variable"
+expect_fail "TLS enabled without issuer rejected" env bash -c \
+  '. "$0/scripts/lib/common.sh"; NAMESPACE=ns; SECRET_NAME=ns-secrets; SECRETS_FILE=/x; INGRESS_ENABLED=true; HOST_NETWORK=false; INGRESS_TLS_ENABLED=true; render_values_file /dev/null' "$REPO_ROOT"
+grep -qF "INGRESS_TLS_ENABLED=true requires INGRESS_TLS_ISSUER" "$TESTS_TMP/expect-fail.out"
+chk $? "issuer-required message names the variable"
 
 section "ingress_tls_secret_name"
 [ "$(librun "RELEASE_NAME=rel; INGRESS_TLS_SECRET_NAME=; ingress_tls_secret_name")" = "rel-tls" ]
@@ -257,45 +257,33 @@ chk $? "TLS secret name defaults to <release>-tls"
 [ "$(librun "RELEASE_NAME=rel; INGRESS_TLS_SECRET_NAME=custom-tls; ingress_tls_secret_name")" = "custom-tls" ]
 chk $? "TLS secret name override respected"
 
-section "create_or_update_tls_secret"
-_tls_cert="$TESTS_TMP/tls.pem"; _tls_key="$TESTS_TMP/tls.key"
-printf 'CERTDATA\n' > "$_tls_cert"; printf 'KEYDATA\n' > "$_tls_key"
-_tls_off="$(librun_stub "SECRETS_FILE=/x; NAMESPACE=ns; SECRET_NAME=ns-secrets; RELEASE_NAME=rel; INGRESS_TLS_ENABLED=false; INGRESS_TLS_CERT_FILE='$TESTS_TMP/tls.pem'; INGRESS_TLS_KEY_FILE='$TESTS_TMP/tls.key'; create_or_update_tls_secret" 2>&1)"
-[ -z "$_tls_off" ]; chk $? "TLS off: no apply, no output"
-_tls_dr="$(HC_DRY_RUN=1 librun_stub "SECRETS_FILE=/x; NAMESPACE=ns; SECRET_NAME=ns-secrets; RELEASE_NAME=rel; INGRESS_TLS_ENABLED=true; INGRESS_TLS_CERT_FILE='$TESTS_TMP/tls.pem'; INGRESS_TLS_KEY_FILE='$TESTS_TMP/tls.key'; create_or_update_tls_secret" 2>&1)"
-printf '%s' "$_tls_dr" | grep -qF '[dry-run] kubectl create secret tls "rel-tls"'
-chk $? "TLS dry-run prints the pipeline (default name)"
-! printf '%s' "$_tls_dr" | grep -qF 'CERTDATA'
-chk $? "TLS dry-run never prints cert contents"
-_tls_real="$(HC_STUB_LOG="$TESTS_TMP/tls.log" librun_stub "SECRETS_FILE=/x; NAMESPACE=ns; SECRET_NAME=ns-secrets; RELEASE_NAME=rel; INGRESS_TLS_ENABLED=true; INGRESS_TLS_SECRET_NAME=custom-tls; INGRESS_TLS_CERT_FILE='$TESTS_TMP/tls.pem'; INGRESS_TLS_KEY_FILE='$TESTS_TMP/tls.key'; create_or_update_tls_secret" 2>&1)"
-printf '%s' "$_tls_real" | grep -qF "Applying TLS Secret 'custom-tls'"
-chk $? "TLS secret applied via mock"
-chk_grep "$TESTS_TMP/tls.log" "create secret tls" "mock log: tls secret create served"
-expect_fail "half-specified TLS files rejected" env bash -c \
-  '. "$0/scripts/lib/common.sh"; NAMESPACE=ns; RELEASE_NAME=rel; INGRESS_TLS_ENABLED=true; INGRESS_TLS_CERT_FILE="/x"; create_or_update_tls_secret' "$REPO_ROOT"
-grep -qF "must be set together" "$TESTS_TMP/expect-fail.out"
-chk $? "half-specified TLS message"
-expect_fail "unreadable TLS cert rejected" env bash -c \
-  '. "$0/scripts/lib/common.sh"; NAMESPACE=ns; RELEASE_NAME=rel; INGRESS_TLS_ENABLED=true; INGRESS_TLS_CERT_FILE="/nonexistent.pem"; INGRESS_TLS_KEY_FILE="/k"; create_or_update_tls_secret' "$REPO_ROOT"
-grep -qF "INGRESS_TLS_CERT_FILE not found or not readable" "$TESTS_TMP/expect-fail.out"
-chk $? "unreadable cert message"
-_tls_warn="$(librun_stub "SECRETS_FILE=/x; NAMESPACE=ns; SECRET_NAME=ns-secrets; RELEASE_NAME=rel; INGRESS_TLS_ENABLED=true; create_or_update_tls_secret" 2>&1)"
-printf '%s' "$_tls_warn" | grep -qF 'default self-signed certificate'
-chk $? "TLS without cert source warns and continues"
-_tls_cm="$(librun_stub "SECRETS_FILE=/x; NAMESPACE=ns; SECRET_NAME=ns-secrets; RELEASE_NAME=rel; INGRESS_TLS_ENABLED=true; INGRESS_TLS_ISSUER=letsencrypt-prod; create_or_update_tls_secret" 2>&1)"
-printf '%s' "$_tls_cm" | grep -qF "managed by cert-manager"
-chk $? "issuer set: cert-manager path noted"
-! printf '%s' "$_tls_cm" | grep -qF 'self-signed'
-chk $? "issuer set: no self-signed warning"
-_tls_certres="$(librun_stub "SECRETS_FILE=/x; NAMESPACE=ns; SECRET_NAME=ns-secrets; RELEASE_NAME=rel; INGRESS_TLS_ENABLED=true; INGRESS_TLS_CERTIFICATE=true; INGRESS_TLS_ISSUER=letsencrypt-prod; create_or_update_tls_secret" 2>&1)"
-printf '%s' "$_tls_certres" | grep -qF "chart's Certificate resource"
-chk $? "certificate mode: Certificate-resource message"
-_tls_noissuer="$(librun_stub "SECRETS_FILE=/x; NAMESPACE=ns; SECRET_NAME=ns-secrets; RELEASE_NAME=rel; INGRESS_TLS_ENABLED=true; INGRESS_TLS_CERTIFICATE=true; create_or_update_tls_secret" 2>&1)"
-printf '%s' "$_tls_noissuer" | grep -qF "no Certificate resource is rendered"
-chk $? "certificate mode without issuer: missing-issuer warning"
-_tls_both="$(HC_STUB_LOG="$TESTS_TMP/tls3.log" librun_stub "SECRETS_FILE=/x; NAMESPACE=ns; SECRET_NAME=ns-secrets; RELEASE_NAME=rel; INGRESS_TLS_ENABLED=true; INGRESS_TLS_CERTIFICATE=true; INGRESS_TLS_ISSUER=letsencrypt-prod; INGRESS_TLS_CERT_FILE='$TESTS_TMP/tls.pem'; INGRESS_TLS_KEY_FILE='$TESTS_TMP/tls.key'; create_or_update_tls_secret" 2>&1)"
-printf '%s' "$_tls_both" | grep -qF "cert-manager renewals will overwrite"
-chk $? "certificate mode with files: overwrite warning"
+section "clusterip enforcement"
+_rvf_lb="$TESTS_TMP/vals-lb.yaml"
+expect_fail "ingress on rejects SERVICE_TYPE=LoadBalancer" env bash -c \
+  '. "$0/scripts/lib/common.sh"; SECRETS_FILE=/x; NAMESPACE=ns; SECRET_NAME=ns-secrets; INGRESS_ENABLED=true; INGRESS_TLS_ENABLED=false; HOST_NETWORK=false; SERVICE_TYPE=LoadBalancer; render_values_file /dev/null' "$REPO_ROOT"
+grep -qF "INGRESS_ENABLED=true requires SERVICE_TYPE=ClusterIP" "$TESTS_TMP/expect-fail.out"
+chk $? "ClusterIP enforcement message names the variables"
+expect_fail "ingress on rejects SERVICE_TYPE=NodePort" env bash -c \
+  '. "$0/scripts/lib/common.sh"; SECRETS_FILE=/x; NAMESPACE=ns; SECRET_NAME=ns-secrets; INGRESS_ENABLED=true; INGRESS_TLS_ENABLED=false; HOST_NETWORK=false; SERVICE_TYPE=NodePort; render_values_file /dev/null' "$REPO_ROOT"
+grep -qF "INGRESS_ENABLED=true requires SERVICE_TYPE=ClusterIP" "$TESTS_TMP/expect-fail.out"
+chk $? "ClusterIP enforcement also rejects NodePort"
+librun_stub "SECRETS_FILE=/x; NAMESPACE=ns; SECRET_NAME=ns-secrets; create_or_update_secret; apply_defaults; ENV_FROM_SECRET=''; INGRESS_ENABLED=true; SERVICE_TYPE=; INGRESS_TLS_ENABLED=false; HOST_NETWORK=false; render_values_file '$_rvf_lb'" >/dev/null 2>&1
+chk_grep "$_rvf_lb" 'type: "ClusterIP"' "empty SERVICE_TYPE coerced to ClusterIP with ingress"
+_rvf_np="$TESTS_TMP/vals-nodeport.yaml"
+librun_stub "SECRETS_FILE=/x; NAMESPACE=ns; SECRET_NAME=ns-secrets; create_or_update_secret; apply_defaults; ENV_FROM_SECRET=''; INGRESS_ENABLED=false; SERVICE_TYPE=NodePort; NODE_PORT=30123; INGRESS_TLS_ENABLED=false; HOST_NETWORK=false; render_values_file '$_rvf_np'" >/dev/null 2>&1
+chk_grep "$_rvf_np" 'type: "NodePort"' "ingress off: NodePort renders as configured"
+chk_grep "$_rvf_np" 'nodePort: 30123' "ingress off: nodePort renders"
+
+section "certificate dns names"
+vals7="$TESTS_TMP/vals-wildcard.yaml"
+librun_stub "SECRETS_FILE=/x; NAMESPACE=ns; SECRET_NAME=ns-secrets; create_or_update_secret; apply_defaults; ENV_FROM_SECRET=''; INGRESS_ENABLED=true; INGRESS_HOST=ha.example.com; INGRESS_TLS_ENABLED=true; INGRESS_TLS_ISSUER=letsencrypt-prod; INGRESS_TLS_DNS_NAMES='*.example.com,example.com'; render_values_file '$vals7'" >/dev/null 2>&1
+chk_grep "$vals7" '- "*.example.com"' "wildcard dnsNames rendered"
+chk_grep "$vals7" '- "example.com"' "apex dnsNames rendered"
+! grep -qF '- "ha.example.com"' "$vals7"
+chk $? "INGRESS_TLS_DNS_NAMES overrides the INGRESS_HOST default"
+vals8="$TESTS_TMP/vals-dns-spaces.yaml"
+librun_stub "SECRETS_FILE=/x; NAMESPACE=ns; SECRET_NAME=ns-secrets; create_or_update_secret; apply_defaults; ENV_FROM_SECRET=''; INGRESS_TLS_ENABLED=true; INGRESS_TLS_ISSUER=letsencrypt-prod; INGRESS_TLS_DNS_NAMES='a.example.com, b.example.com'; render_values_file '$vals8'" >/dev/null 2>&1
+chk_grep "$vals8" '- "b.example.com"' "dnsNames list splits on spaces after commas"
 
 section "dry_run_render_manifests"
 _vals="$TESTS_TMP/drm-values.yaml"

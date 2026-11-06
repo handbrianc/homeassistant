@@ -212,6 +212,13 @@ explicit `Certificate` resource; the chart renders it only when opted in.
   `spec.dnsNames` from `ingress.certificate.dnsNames`, falling back to the
   non-empty `ingress.hosts` entries
 
+#### Scenario: Wildcard DNS names
+- **WHEN** `ingress.certificate.dnsNames` contains a wildcard entry (e.g.
+  `*.example.com`)
+- **THEN** it renders verbatim (quoted, so YAML stays valid) and cert-manager
+  issues the wildcard certificate (the issuer must be DNS-01 capable — the
+  chart places no restriction)
+
 #### Scenario: Issuer name required
 - **WHEN** `ingress.certificate.enabled=true` without
   `ingress.certificate.issuerRef.name`

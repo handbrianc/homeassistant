@@ -107,6 +107,15 @@ else
   chk_grep "$OUT/certificate-fallback.yaml" 'secretName: "ha-homeassistant-tls"' \
     "fallback secretName is <fullname>-tls"
 
+  _tpl "$OUT/certificate-wildcard.yaml" --set ingress.certificate.enabled=true \
+    --set ingress.certificate.issuerRef.name=letsencrypt-prod \
+    --set 'ingress.certificate.dnsNames={*.example.com,example.com}'
+  [ $? = "0" ]; chk $? "Wildcard dnsNames values render"
+  chk_grep "$OUT/certificate-wildcard.yaml" '- "*.example.com"' "wildcard dnsNames rendered quoted"
+  chk_grep "$OUT/certificate-wildcard.yaml" '- "example.com"' "apex dnsNames rendered"
+  chk_grep "$OUT/certificate-wildcard.yaml" 'secretName: "ha-homeassistant-tls"' \
+    "wildcard secretName is <fullname>-tls"
+
   _tpl "$OUT/certificate-shared.yaml" --set ingress.enabled=true \
     --set ingress.certificate.enabled=true \
     --set ingress.certificate.issuerRef.name=letsencrypt-prod \

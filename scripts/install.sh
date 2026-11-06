@@ -155,8 +155,8 @@ log_info "  NAMESPACE=$NAMESPACE  RELEASE_NAME=$RELEASE_NAME"
 log_info "  CHART_DIR=$CHART_DIR  HELM_TIMEOUT=$HELM_TIMEOUT  KUBECONFIG=${KUBECONFIG:-<kubectl default>}"
 log_info "  IMAGE_TAG=$IMAGE_TAG  TIMEZONE=$TIMEZONE  NODE_ARCH=${NODE_ARCH:-<any>}"
 log_info "  STORAGE: class=${STORAGE_CLASS:-<cluster default>} size=$STORAGE_SIZE"
-log_info "  SERVICE: type=$SERVICE_TYPE port=$SERVICE_PORT lbIP=${LOADBALANCER_IP:-<none>} nodePort=${NODE_PORT:-<none>}"
-log_info "  INGRESS: enabled=$INGRESS_ENABLED class=${INGRESS_CLASS:-<none>} host=${INGRESS_HOST:-<catch-all>} tls=$INGRESS_TLS_ENABLED cert=$INGRESS_TLS_CERTIFICATE${INGRESS_TLS_ISSUER:+ issuer=$INGRESS_TLS_ISSUER}"
+log_info "  SERVICE: type=${SERVICE_TYPE:-<chart default>} port=$SERVICE_PORT lbIP=${LOADBALANCER_IP:-<none>} nodePort=${NODE_PORT:-<none>}"
+log_info "  INGRESS: enabled=$INGRESS_ENABLED class=${INGRESS_CLASS:-<none>} host=${INGRESS_HOST:-<catch-all>} tls=$INGRESS_TLS_ENABLED${INGRESS_TLS_ISSUER:+ issuer=$INGRESS_TLS_ISSUER}${INGRESS_TLS_DNS_NAMES:+ dnsNames=$INGRESS_TLS_DNS_NAMES}"
 log_info "  HOST_NETWORK=$HOST_NETWORK  SECRETS_FILE=$SECRETS_FILE  VALUES_EXTRA=${VALUES_EXTRA:-<none>}"
 if [ "$HC_DRY_RUN" = "1" ]; then
   log_warn "DRY-RUN: nothing will be executed; the generated values and every command are printed below."
@@ -167,7 +167,6 @@ assert_all_values_safe
 
 # --- Step 5: apply credentials as a Kubernetes Secret -------------------------
 create_or_update_secret
-create_or_update_tls_secret
 
 # --- Step 6: render the generated values file (trap-cleaned temp file) --------
 VALUES_GENERATED="$(mktemp "${TMPDIR:-/tmp}/homeassistant-values.XXXXXX")" || die "mktemp failed"

@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-11-06
+goal: Ingress-fronted service is ClusterIP-only; TLS is cert-manager-only with
+  wildcard-capable DNS names; env contract pruned of the file/toggle vars

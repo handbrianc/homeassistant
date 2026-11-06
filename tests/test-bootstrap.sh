@@ -37,7 +37,7 @@ printf 'OLDVALUE=1\n' > "$BSREPO/.env"
 printf 'MQTT_PASSWORD=s3cr3tvalue\n' > "$BSREPO/secrets.env"
 chmod 600 "$BSREPO/secrets.env"
 rm -f "$AK"
-section "T1: full bootstrap (LoadBalancer, existing release and PVC)"
+section "T1: full bootstrap (ClusterIP via ingress, existing release and PVC)"
 env -i PATH="$STUBS:$BASE_PATH" HOME="$H" HC_STUB_LOG="$TESTS_TMP/bs1.log" \
   HC_STUB_KUBECONFIG="$KC_CANON" HC_STUB_AK="$AK" \
   bash "$BSREPO/scripts/bootstrap-cluster.sh" --host pi@10.0.0.5 >"$TESTS_TMP/bs1.out" 2>&1
@@ -60,21 +60,20 @@ chk_grep "$BSREPO/.env" 'TIMEZONE="Europe/Berlin"' "T1 TIMEZONE from control pla
 chk_grep "$BSREPO/.env" 'NODE_ARCH="arm64"' "T1 NODE_ARCH from nodes"
 chk_grep "$BSREPO/.env" 'STORAGE_CLASS="longhorn"' "T1 STORAGE_CLASS from existing PVC"
 chk_grep "$BSREPO/.env" 'STORAGE_SIZE="8Gi"' "T1 STORAGE_SIZE from existing PVC"
-chk_grep "$BSREPO/.env" 'SERVICE_TYPE="LoadBalancer"' "T1 SERVICE_TYPE LoadBalancer"
-chk_regex "$BSREPO/.env" '^NODE_PORT=""$' "T1 NODE_PORT empty under LB"
+chk_grep "$BSREPO/.env" 'SERVICE_TYPE="ClusterIP"' "T1 SERVICE_TYPE ClusterIP (ingress fronts the pod)"
+chk_regex "$BSREPO/.env" '^NODE_PORT=""$' "T1 NODE_PORT cleared under ingress"
 chk_grep "$BSREPO/.env" 'INGRESS_CLASS="traefik"' "T1 INGRESS_CLASS detected"
 chk_grep "$BSREPO/.env" 'INGRESS_ENABLED="true"' "T1 ingress enabled by default (controller detected)"
 chk_regex "$BSREPO/.env" '^INGRESS_HOST=""$' "T1 catch-all (no host by default)"
 chk_grep "$BSREPO/.env" 'INGRESS_TLS_ENABLED="true"' "T1 ingress TLS on by default"
 chk_grep "$BSREPO/.env" 'INGRESS_TLS_SECRET_NAME="homeassistant-tls"' "T1 TLS secret name derived from release"
-chk_regex "$BSREPO/.env" '^INGRESS_TLS_CERT_FILE=""$' "T1 no cert file by default"
-chk_regex "$BSREPO/.env" '^INGRESS_TLS_KEY_FILE=""$' "T1 no key file by default"
+chk_regex "$BSREPO/.env" '^INGRESS_TLS_DNS_NAMES=""$' "T1 no dns-names override by default"
 chk_regex "$BSREPO/.env" '^INGRESS_TLS_ISSUER=""$' "T1 no issuer by default"
 chk_grep "$BSREPO/.env" 'INGRESS_TRUSTED_PROXIES="10.42.0.0/16"' "T1 k3s pod CIDR as trusted proxies"
 chk_grep "$TESTS_TMP/bs1.out" "cert-manager detected" "T1 cert-manager presence reported"
-chk_grep "$BSREPO/.env" 'INGRESS_TLS_CERTIFICATE="true"' "T1 certificate mode on (cert-manager CRD)"
 chk_regex "$BSREPO/.env" '^INGRESS_TLS_ISSUER_KIND=""$' "T1 issuer kind left default"
-chk_grep "$TESTS_TMP/bs1.out" "enabled: true, tls: true, cert-manager: true" "T1 report shows cert-manager mode"
+chk_grep "$TESTS_TMP/bs1.out" "SERVICE_TYPE=ClusterIP" "T1 ClusterIP override logged"
+chk_grep "$TESTS_TMP/bs1.out" "enabled: true, tls: true" "T1 report shows ingress+TLS state"
 chk_grep "$BSREPO/.env" 'SECRETS_FILE="secrets.env"' "T1 SECRETS_FILE set"
 [ "$(find "$BSREPO" -maxdepth 1 -name '.env.backup-*' | wc -l)" = "1" ]; chk $? "T1 exactly one .env backup"
 grep -q 'OLDVALUE=1' "$BSREPO"/.env.backup-* 2>/dev/null
@@ -94,12 +93,16 @@ chk $? "T1 re-run exits 0 (idempotent)"
 [ "$(find "$BSREPO" -maxdepth 1 -name '.env.backup-*' | wc -l)" = "2" ]; chk $? "T1 second backup created (collision-safe)"
 
 # T9: the generated .env must drive install.sh --dry-run (cross-lane hand-off)
+# The bootstrap .env leaves INGRESS_TLS_ISSUER empty (a human decision — it
+# names the user's actual issuer); T9 appends one so the dry-run can render.
+printf 'INGRESS_TLS_ISSUER=letsencrypt-prod\n' >> "$BSREPO/.env"
 env -i PATH="$STUBS:$BASE_PATH" HOME="$H" HC_STUB_LOG="$TESTS_TMP/bs9.log" \
   bash "$BSREPO/scripts/install.sh" --dry-run >"$TESTS_TMP/bs9.out" 2>&1
 [ $? = "0" ]; chk $? "T9 install.sh --dry-run accepts the bootstrap .env"
 chk_grep "$TESTS_TMP/bs9.out" "Europe/Berlin" "T9 dry-run renders bootstrap TIMEZONE"
 chk_grep "$TESTS_TMP/bs9.out" "longhorn" "T9 dry-run renders bootstrap STORAGE_CLASS"
 chk_grep "$TESTS_TMP/bs9.out" "homeassistant-secrets" "T9 dry-run uses the release secret"
+chk_grep "$TESTS_TMP/bs9.out" 'type: "ClusterIP"' "T9 dry-run renders the ClusterIP service"
 chk_grep "$TESTS_TMP/bs9.out" 'secretName: "homeassistant-tls"' "T9 dry-run renders TLS from bootstrap defaults"
 chk_grep "$TESTS_TMP/bs9.out" '- "10.42.0.0/16"' "T9 dry-run renders trusted proxies"
 chk_regex "$TESTS_TMP/bs9.out" '^    -$' "T9 dry-run renders the catch-all rule"
@@ -130,19 +133,20 @@ chk $? "T3 sudo-cat fallback succeeds"
 chk_grep "$TESTS_TMP/bs3.log" "sudo cat" "T3 sudo cat used over ssh"
 chk_grep "$H3/.kube/config" "https://10.0.0.5:6443" "T3 fetched kubeconfig rewritten"
 
-# ============================== T4: review-only, NodePort fallback ===========
+# ============================== T4: review-only, ingress overrides NodePort ==
 fresh_repo "$BSREPO"
 H4="$TESTS_TMP/home4"
 mkdir -p "$H4"
 : > "$H4/kc.yaml"
-section "T4: review-only run, NodePort fallback"
+section "T4: review-only run, ingress overrides the NodePort fallback"
 env -i PATH="$STUBS:$BASE_PATH" HOME="$H4" KUBECONFIG="$H4/kc.yaml" \
   HC_STUB_LOG="$TESTS_TMP/bs4.log" HC_STUB_KUBECONFIG="$KC_CANON" \
   HC_STUB_NO_LB=1 HC_STUB_NO_RELEASE=1 HC_STUB_NO_PVC=1 \
   bash "$BSREPO/scripts/bootstrap-cluster.sh" >"$TESTS_TMP/bs4.out" 2>&1
 chk $? "T4 review-only run exits 0"
-chk_grep "$BSREPO/.env" 'SERVICE_TYPE="NodePort"' "T4 NodePort fallback"
-chk_grep "$BSREPO/.env" 'NODE_PORT="30812"' "T4 default nodePort 30812"
+chk_grep "$BSREPO/.env" 'SERVICE_TYPE="ClusterIP"' "T4 ingress forces ClusterIP over the LB/NodePort derivation"
+chk_regex "$BSREPO/.env" '^NODE_PORT=""$' "T4 NODE_PORT cleared by the ingress override"
+chk_grep "$TESTS_TMP/bs4.out" "SERVICE_TYPE=ClusterIP" "T4 ClusterIP override logged"
 chk_grep "$BSREPO/.env" 'IMAGE_TAG="2026.11.0"' "T4 chart-default image tag (no release)"
 chk_grep "$BSREPO/.env" 'STORAGE_SIZE="5Gi"' "T4 default storage size"
 chk_grep "$BSREPO/.env" 'STORAGE_CLASS="local-path"' "T4 default storage class detected"
@@ -171,22 +175,24 @@ chk_regex "$BSREPO/.env" '^INGRESS_TLS_ENABLED="false"$' "T4b TLS off"
 chk_regex "$BSREPO/.env" '^INGRESS_TLS_SECRET_NAME=""$' "T4b no TLS secret name"
 chk_regex "$BSREPO/.env" '^INGRESS_TRUSTED_PROXIES=""$' "T4b no trusted proxies"
 chk_grep "$TESTS_TMP/bs4b.out" "No ingress controller detected" "T4b absence reported"
-chk_regex "$BSREPO/.env" '^INGRESS_TLS_CERTIFICATE="false"$' "T4b certificate stays off"
+chk_grep "$BSREPO/.env" 'SERVICE_TYPE="NodePort"' "T4b NodePort fallback applies without ingress"
+chk_grep "$BSREPO/.env" 'NODE_PORT="30812"' "T4b default nodePort 30812"
+chk_regex "$BSREPO/.env" '^INGRESS_TLS_DNS_NAMES=""$' "T4b dns-names stays empty"
 
 # ============================== T4c: cert-manager absent ======================
 fresh_repo "$BSREPO"
 H4c="$TESTS_TMP/home4c"
 mkdir -p "$H4c"
 : > "$H4c/kc.yaml"
-section "T4c: cert-manager absent — cert/key file hint"
+section "T4c: cert-manager absent — warned, no fallback"
 env -i PATH="$STUBS:$BASE_PATH" HOME="$H4c" KUBECONFIG="$H4c/kc.yaml" \
   HC_STUB_LOG="$TESTS_TMP/bs4c.log" HC_STUB_KUBECONFIG="$KC_CANON" \
   HC_STUB_NO_LB=1 HC_STUB_NO_RELEASE=1 HC_STUB_NO_PVC=1 HC_STUB_NO_CERTMGR=1 \
   bash "$BSREPO/scripts/bootstrap-cluster.sh" >"$TESTS_TMP/bs4c.out" 2>&1
 chk $? "T4c run exits 0"
 chk_grep "$TESTS_TMP/bs4c.out" "cert-manager not detected" "T4c cert-manager absence reported"
-chk_grep "$TESTS_TMP/bs4c.out" "INGRESS_TLS_CERT_FILE/INGRESS_TLS_KEY_FILE" "T4c file path hint"
-chk_regex "$BSREPO/.env" '^INGRESS_TLS_CERTIFICATE="false"$' "T4c certificate off without CRD"
+chk_grep "$TESTS_TMP/bs4c.out" "certificate will not be issued until cert-manager is installed" "T4c no-issuer warning"
+chk_grep "$BSREPO/.env" 'SERVICE_TYPE="ClusterIP"' "T4c ingress still forces ClusterIP"
 
 # ============================== T5: mixed arch ================================
 fresh_repo "$BSREPO"
