@@ -80,6 +80,17 @@ manual YAML editing, without ever overwriting an existing configuration.
 - **WHEN** `/config/configuration.yaml` already exists
 - **THEN** the init container leaves `/config` untouched
 
+#### Scenario: Trusted-proxy seed behind an ingress
+- **WHEN** ingress is enabled and `ingress.trustedProxies` is a non-empty
+  list of CIDRs
+- **THEN** the seeded configuration also contains
+  `http.use_x_forwarded_for: true` and `http.trusted_proxies` with those
+  CIDRs, so logins through the reverse proxy are accepted
+
+#### Scenario: No trusted proxies without ingress
+- **WHEN** ingress is disabled or `ingress.trustedProxies` is empty
+- **THEN** no `http:` section is added to the seeded configuration
+
 ### Requirement: Health probes
 
 The chart MUST define startup, readiness and liveness probes.
@@ -154,6 +165,17 @@ Ingress is opt-in and standard.
 - **WHEN** `ingress.enabled=true`
 - **THEN** an Ingress is rendered with `className`, `annotations`, `hosts` and
   optional `tls` from values
+
+#### Scenario: Catch-all rule without a host
+- **WHEN** a `hosts` entry has an empty or absent `host`
+- **THEN** the rendered rule omits the `host` key entirely (never
+  `host: ""`), so the rule matches any hostname reaching the ingress
+  controller
+
+#### Scenario: TLS block from values
+- **WHEN** `ingress.tls` is a non-empty list of entries (e.g.
+  `secretName` with an optional `hosts` list)
+- **THEN** the Ingress renders the `tls` block verbatim from values
 
 ### Requirement: Chart packaging quality
 

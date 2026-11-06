@@ -175,6 +175,8 @@ IMAGE_TAG=2026.10.0; TIMEZONE=Europe/Berlin; NODE_ARCH=arm64;
 STORAGE_CLASS=longhorn; STORAGE_SIZE=8Gi; SERVICE_TYPE=LoadBalancer;
 SERVICE_PORT=8123; LOADBALANCER_IP=1.2.3.4; NODE_PORT=;
 INGRESS_ENABLED=true; INGRESS_CLASS=traefik; INGRESS_HOST=ha.example.com;
+INGRESS_TLS_ENABLED=true; INGRESS_TLS_SECRET_NAME=ha-tls; INGRESS_TLS_ISSUER=letsencrypt-prod;
+INGRESS_TRUSTED_PROXIES=10.42.0.0/16,10.43.0.0/16;
 HOST_NETWORK=true; render_values_file '$vals'"
 librun_stub "$_rvf" >/dev/null 2>&1
 [ $? = "0" ]; chk $? "full render succeeds"
@@ -188,6 +190,13 @@ chk_grep "$vals" 'enabled: true' "render: ingress enabled"
 chk_grep "$vals" 'className: "traefik"' "render: ingress class"
 chk_grep "$vals" 'host: "ha.example.com"' "render: ingress host"
 chk_grep "$vals" 'pathType: Prefix' "render: ingress pathType"
+chk_grep "$vals" 'cert-manager.io/cluster-issuer: "letsencrypt-prod"' "render: cert-manager annotation"
+chk_grep "$vals" 'trustedProxies:' "render: trustedProxies key"
+chk_grep "$vals" '- "10.42.0.0/16"' "render: trusted proxy entry"
+chk_grep "$vals" '- "10.43.0.0/16"' "render: trusted proxies comma-split"
+chk_grep "$vals" 'tls:' "render: tls block"
+chk_grep "$vals" 'secretName: "ha-tls"' "render: tls secretName"
+chk_grep "$vals" '      hosts:' "render: tls host list"
 chk_grep "$vals" 'hostNetwork: true' "render: hostNetwork"
 chk_grep "$vals" 'dnsPolicy: "ClusterFirstWithHostNet"' "render: dnsPolicy with hostNetwork"
 chk_grep "$vals" 'kubernetes.io/arch: "arm64"' "render: nodeSelector arch"
@@ -202,6 +211,58 @@ expect_fail "render rejects bad INGRESS_ENABLED" env HC_VAL=maybe bash -c \
   '. "$0/scripts/lib/common.sh"; SECRETS_FILE=/x; NAMESPACE=ns; SECRET_NAME=ns-secrets; create_or_update_secret >/dev/null 2>&1; INGRESS_ENABLED="$HC_VAL"; render_values_file /dev/null' "$REPO_ROOT"
 grep -q "INGRESS_ENABLED must be 'true' or 'false'" "$TESTS_TMP/expect-fail.out"
 chk $? "render message names the variable"
+expect_fail "render rejects bad INGRESS_TLS_ENABLED" env HC_VAL=maybe bash -c \
+  '. "$0/scripts/lib/common.sh"; SECRETS_FILE=/x; NAMESPACE=ns; SECRET_NAME=ns-secrets; INGRESS_ENABLED=true; HOST_NETWORK=false; INGRESS_TLS_ENABLED="$HC_VAL"; render_values_file /dev/null' "$REPO_ROOT"
+grep -q "INGRESS_TLS_ENABLED must be 'true' or 'false'" "$TESTS_TMP/expect-fail.out"
+chk $? "TLS bool message names the variable"
+
+# Hostless catch-all render: INGRESS_HOST empty -> rule without host key,
+# TLS secret name defaults to <release>-tls, no tls hosts list.
+vals3="$TESTS_TMP/vals-hostless.yaml"
+librun_stub "SECRETS_FILE=/x; NAMESPACE=ns; SECRET_NAME=ns-secrets; create_or_update_secret; apply_defaults; ENV_FROM_SECRET=''; INGRESS_ENABLED=true; INGRESS_CLASS=nginx; INGRESS_TLS_ENABLED=true; render_values_file '$vals3'" >/dev/null 2>&1
+chk_grep "$vals3" 'enabled: true' "hostless render: ingress enabled"
+! grep -qF 'host:' "$vals3"
+chk $? "hostless render: no host key anywhere (catch-all)"
+grep -q '^    -$' "$vals3"
+chk $? "hostless render: dash-only list entry"
+chk_grep "$vals3" 'secretName: "homeassistant-tls"' "hostless render: default TLS secret name <release>-tls"
+
+section "ingress_tls_secret_name"
+[ "$(librun "RELEASE_NAME=rel; INGRESS_TLS_SECRET_NAME=; ingress_tls_secret_name")" = "rel-tls" ]
+chk $? "TLS secret name defaults to <release>-tls"
+[ "$(librun "RELEASE_NAME=rel; INGRESS_TLS_SECRET_NAME=custom-tls; ingress_tls_secret_name")" = "custom-tls" ]
+chk $? "TLS secret name override respected"
+
+section "create_or_update_tls_secret"
+_tls_cert="$TESTS_TMP/tls.pem"; _tls_key="$TESTS_TMP/tls.key"
+printf 'CERTDATA\n' > "$_tls_cert"; printf 'KEYDATA\n' > "$_tls_key"
+_tls_off="$(librun_stub "SECRETS_FILE=/x; NAMESPACE=ns; SECRET_NAME=ns-secrets; RELEASE_NAME=rel; INGRESS_TLS_ENABLED=false; INGRESS_TLS_CERT_FILE='$TESTS_TMP/tls.pem'; INGRESS_TLS_KEY_FILE='$TESTS_TMP/tls.key'; create_or_update_tls_secret" 2>&1)"
+[ -z "$_tls_off" ]; chk $? "TLS off: no apply, no output"
+_tls_dr="$(HC_DRY_RUN=1 librun_stub "SECRETS_FILE=/x; NAMESPACE=ns; SECRET_NAME=ns-secrets; RELEASE_NAME=rel; INGRESS_TLS_ENABLED=true; INGRESS_TLS_CERT_FILE='$TESTS_TMP/tls.pem'; INGRESS_TLS_KEY_FILE='$TESTS_TMP/tls.key'; create_or_update_tls_secret" 2>&1)"
+printf '%s' "$_tls_dr" | grep -qF '[dry-run] kubectl create secret tls "rel-tls"'
+chk $? "TLS dry-run prints the pipeline (default name)"
+! printf '%s' "$_tls_dr" | grep -qF 'CERTDATA'
+chk $? "TLS dry-run never prints cert contents"
+_tls_real="$(HC_STUB_LOG="$TESTS_TMP/tls.log" librun_stub "SECRETS_FILE=/x; NAMESPACE=ns; SECRET_NAME=ns-secrets; RELEASE_NAME=rel; INGRESS_TLS_ENABLED=true; INGRESS_TLS_SECRET_NAME=custom-tls; INGRESS_TLS_CERT_FILE='$TESTS_TMP/tls.pem'; INGRESS_TLS_KEY_FILE='$TESTS_TMP/tls.key'; create_or_update_tls_secret" 2>&1)"
+printf '%s' "$_tls_real" | grep -qF "Applying TLS Secret 'custom-tls'"
+chk $? "TLS secret applied via mock"
+chk_grep "$TESTS_TMP/tls.log" "create secret tls" "mock log: tls secret create served"
+expect_fail "half-specified TLS files rejected" env bash -c \
+  '. "$0/scripts/lib/common.sh"; NAMESPACE=ns; RELEASE_NAME=rel; INGRESS_TLS_ENABLED=true; INGRESS_TLS_CERT_FILE="/x"; create_or_update_tls_secret' "$REPO_ROOT"
+grep -qF "must be set together" "$TESTS_TMP/expect-fail.out"
+chk $? "half-specified TLS message"
+expect_fail "unreadable TLS cert rejected" env bash -c \
+  '. "$0/scripts/lib/common.sh"; NAMESPACE=ns; RELEASE_NAME=rel; INGRESS_TLS_ENABLED=true; INGRESS_TLS_CERT_FILE="/nonexistent.pem"; INGRESS_TLS_KEY_FILE="/k"; create_or_update_tls_secret' "$REPO_ROOT"
+grep -qF "INGRESS_TLS_CERT_FILE not found or not readable" "$TESTS_TMP/expect-fail.out"
+chk $? "unreadable cert message"
+_tls_warn="$(librun_stub "SECRETS_FILE=/x; NAMESPACE=ns; SECRET_NAME=ns-secrets; RELEASE_NAME=rel; INGRESS_TLS_ENABLED=true; create_or_update_tls_secret" 2>&1)"
+printf '%s' "$_tls_warn" | grep -qF 'default self-signed certificate'
+chk $? "TLS without cert source warns and continues"
+_tls_cm="$(librun_stub "SECRETS_FILE=/x; NAMESPACE=ns; SECRET_NAME=ns-secrets; RELEASE_NAME=rel; INGRESS_TLS_ENABLED=true; INGRESS_TLS_ISSUER=letsencrypt-prod; create_or_update_tls_secret" 2>&1)"
+printf '%s' "$_tls_cm" | grep -qF "managed by cert-manager"
+chk $? "issuer set: cert-manager path noted"
+! printf '%s' "$_tls_cm" | grep -qF 'self-signed'
+chk $? "issuer set: no self-signed warning"
 
 section "require_helm"
 PATH="$STUBS:$BASE_PATH" librun 'require_helm' >"$TESTS_TMP/rh.out" 2>&1

@@ -60,6 +60,27 @@ output.
 - **THEN** the script warns, skips Secret creation, and renders the release
   with `envFromSecret=""` so the pod does not wait on a missing Secret
 
+#### Scenario: TLS secret applied from cert/key files
+- **WHEN** ingress TLS is enabled and `INGRESS_TLS_CERT_FILE` and
+  `INGRESS_TLS_KEY_FILE` both name readable PEM files
+- **THEN** the script creates/updates the `kubernetes.io/tls` Secret named
+  `INGRESS_TLS_SECRET_NAME` (default `<release>-tls`) in the target namespace
+  using `kubectl create secret tls` piped through a client-side dry run to
+  `kubectl apply`, without printing the certificate or key contents; in
+  dry-run the pipeline is printed without file contents
+
+#### Scenario: Half-specified or unreadable TLS files rejected
+- **WHEN** only one of `INGRESS_TLS_CERT_FILE`/`INGRESS_TLS_KEY_FILE` is set,
+  or a set path does not exist or is not readable
+- **THEN** the script aborts with an error naming the variable and path
+
+#### Scenario: TLS enabled without a certificate source
+- **WHEN** ingress TLS is enabled but no cert/key files are set and
+  `INGRESS_TLS_ISSUER` is empty
+- **THEN** the script warns that the TLS Secret must be provisioned
+  externally (or via cert-manager) and that the controller will serve its
+  default self-signed certificate until then, and continues
+
 ### Requirement: Idempotent install
 
 The installer SHALL converge the release idempotently via helm upgrade --install.
@@ -190,10 +211,9 @@ configuration.
 - **THEN** the script derives values compatible with the cluster: node
   architecture (empty + warning when nodes are mixed-arch), the default
   storage class, LoadBalancer capability (assigned LoadBalancer ingress IPs or
-  an `svclb` DaemonSet) with a NodePort fallback otherwise, an available
-  ingress class (Traefik preferred), the live release's image tag when the
-  release already exists, the existing PVC's size and storage class, and the
-  control-plane timezone (when SSH was used)
+  an `svclb` DaemonSet) with a NodePort fallback otherwise, the live release's
+  image tag when the release already exists, the existing PVC's size and
+  storage class, and the control-plane timezone (when SSH was used)
 
 #### Scenario: Existing release state wins
 - **WHEN** a Helm release with the configured name already exists in the
@@ -201,6 +221,20 @@ configuration.
 - **THEN** `IMAGE_TAG` is taken from the live release (not the chart default)
   and `STORAGE_SIZE`/`STORAGE_CLASS` come from the existing PVC so an update
   never shrinks or moves storage
+
+#### Scenario: Ingress controller defaults the ingress on
+- **WHEN** an IngressClass is present on the cluster (Traefik preferred)
+- **THEN** the generated configuration defaults `INGRESS_ENABLED=true` with
+  the detected class, `INGRESS_TLS_ENABLED=true`,
+  `INGRESS_TLS_SECRET_NAME=<release>-tls` and
+  `INGRESS_TRUSTED_PROXIES=10.42.0.0/16` (k3s default pod CIDR, documented as
+  adjustable), leaving `INGRESS_HOST` empty for a catch-all rule
+- **AND WHEN** the `certificates.cert-manager.io` CRD is present
+- **THEN** the script reports that setting `INGRESS_TLS_ISSUER` enables
+  automatic certificates; otherwise it reports that cert/key files or
+  cert-manager are needed for a trusted certificate
+- **WHEN** no ingress controller is detected
+- **THEN** the ingress and its TLS settings stay disabled as before
 
 #### Scenario: .env generated with backup
 - **WHEN** configuration is written

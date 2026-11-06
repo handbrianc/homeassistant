@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-11-06
+goal: Default ingress on when a controller exists, with env-driven TLS and
+  trusted proxies

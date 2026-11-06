@@ -75,6 +75,31 @@ chk_grep "$TESTS_TMP/dry5.out" '[dry-run] kubectl create secret generic' "secret
 chk_grep "$TESTS_TMP/dry5.out" 'envFromSecret: "homeassistant-secrets"' "envFromSecret wired"
 chk_nogrep "$TESTS_TMP/dry5.out" "s3cr3tvalue" "secret VALUE never printed (dry-run)"
 
+# ingress + TLS dry-run: catch-all rule, tls block, TLS secret previewed
+R3="$TESTS_TMP/repo3"
+fresh_repo "$R3"
+tlscert="$TESTS_TMP/e2e.pem"; tlskey="$TESTS_TMP/e2e.key"
+printf 'CERTDATA\n' > "$tlscert"; printf 'KEYDATA\n' > "$tlskey"
+{
+  printf 'SECRETS_FILE=%s\n' "$secf"
+  printf 'INGRESS_ENABLED=true\n'
+  printf 'INGRESS_CLASS=traefik\n'
+  printf 'INGRESS_TLS_ENABLED=true\n'
+  printf 'INGRESS_TLS_CERT_FILE=%s\n' "$tlscert"
+  printf 'INGRESS_TLS_KEY_FILE=%s\n' "$tlskey"
+  printf 'INGRESS_TRUSTED_PROXIES=10.42.0.0/16\n'
+} > "$R3/.env"
+env -i PATH="$BASE_PATH" HOME="$TESTS_TMP/home" bash "$R3/scripts/install.sh" --dry-run \
+  >"$TESTS_TMP/dry6.out" 2>&1
+[ $? = "0" ]; chk $? "dry-run with ingress+TLS succeeds (no host: catch-all)"
+chk_grep "$TESTS_TMP/dry6.out" '[dry-run] kubectl create secret tls "homeassistant-tls"' "TLS secret apply previewed"
+chk_nogrep "$TESTS_TMP/dry6.out" "CERTDATA" "TLS file contents never printed (dry-run)"
+chk_grep "$TESTS_TMP/dry6.out" 'className: "traefik"' "ingress class rendered"
+chk_regex "$TESTS_TMP/dry6.out" '^    -$' "catch-all rule rendered (no host key)"
+chk_grep "$TESTS_TMP/dry6.out" 'secretName: "homeassistant-tls"' "tls secretName rendered"
+chk_grep "$TESTS_TMP/dry6.out" '- "10.42.0.0/16"' "trusted proxies rendered"
+chk_grep "$TESTS_TMP/dry6.out" 'host=<catch-all>' "config line shows catch-all host"
+
 # unsafe values and bad chart path abort before anything happens
 printf "STORAGE_CLASS='a\"b'\n" > "$R2/.env"
 expect_fail "unsafe value aborts even in dry-run" env -i PATH="$BASE_PATH" \
@@ -139,5 +164,16 @@ chk_grep "$TESTS_TMP/e2e-np.out" "http://<node-ip>:30812" "NodePort URL hint"
 _e2e "$TESTS_TMP/e2e-nosvc.out" HC_STUB_SVC_MODE=none
 [ $? = "0" ]; chk $? "service listing failure is a warning"
 chk_grep "$TESTS_TMP/e2e-nosvc.out" "Could not list Services" "svc-list failure warned"
+
+# ingress + TLS e2e: cert files applied as the TLS Secret, catch-all URL hint
+_e2e "$TESTS_TMP/e2e-ing.out" INGRESS_ENABLED=true INGRESS_CLASS=traefik \
+  INGRESS_TLS_ENABLED=true \
+  INGRESS_TLS_CERT_FILE="$tlscert" INGRESS_TLS_KEY_FILE="$tlskey" \
+  INGRESS_TRUSTED_PROXIES=10.42.0.0/16
+[ $? = "0" ]; chk $? "ingress+TLS e2e install succeeds"
+chk_grep "$TESTS_TMP/e2e-ing.out" "TLS Secret 'homeassistant-tls' applied." "TLS secret applied (mock)"
+chk_grep "$TESTS_TMP/e2e-ing.out" "Ingress (catch-all rule): https://<ingress-controller-address>" "catch-all ingress URL printed"
+chk_grep "$TESTS_TMP/e2e.log" "create secret tls" "mock log: tls secret served (e2e)"
+chk_nogrep "$TESTS_TMP/e2e.log" "CERTDATA" "TLS file contents never in mock log"
 
 finish

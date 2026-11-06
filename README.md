@@ -130,7 +130,7 @@ chart never overwrites an existing configuration**.
 | Probes | startup ≤5 min on `/` | HA first boot is slow on Pi-class nodes |
 | Resources | req 200m/512Mi, limit 1.5Gi (no CPU limit) | CPU limits throttle HA startup on Pi nodes |
 | Bootstrap config | minimal `configuration.yaml` on first boot only | works immediately, never clobbers user edits |
-| Ingress | disabled | enable via `INGRESS_ENABLED=true` + class/host |
+| Ingress | enabled automatically when a controller is detected | bootstrap defaults it on with TLS; `INGRESS_ENABLED=false` to opt out |
 | Discovery/USB | off | opt-in `HOST_NETWORK=true` / `usbDevices` values |
 
 Full key reference: `charts/homeassistant/values.yaml` (every key documented)
@@ -141,8 +141,18 @@ and the [design contract](openspec/changes/archive/2026-11-05-initialize-homeass
 * **LoadBalancer (default)** — the service URL printed by `install.sh`; on
   k3s, klipper-lb binds port 8123 on every node IP.
 * **NodePort** — set `SERVICE_TYPE=NodePort` and optionally `NODE_PORT=30123`.
-* **Ingress** — set `INGRESS_ENABLED=true`, `INGRESS_CLASS=traefik`,
-  `INGRESS_HOST=homeassistant.example.com` (Traefik ships with k3s).
+* **Ingress (auto)** — bootstrap detects an ingress controller (Traefik ships
+  with k3s) and defaults the ingress on: `INGRESS_ENABLED=true`,
+  `INGRESS_CLASS=<detected>`, TLS on with a self-signed certificate until you
+  provision one, and a catch-all rule when `INGRESS_HOST` is empty (any
+  hostname reaching the ingress works, e.g. `https://<node-ip>`). Set
+  `INGRESS_HOST=homeassistant.example.com` for a host-specific rule.
+  * **TLS certificates** — either set `INGRESS_TLS_ISSUER` (cert-manager, auto-detected)
+    or provide a PEM pair via `INGRESS_TLS_CERT_FILE`/`INGRESS_TLS_KEY_FILE`
+    (applied as the `<release>-tls` Secret).
+  * `INGRESS_TRUSTED_PROXIES` (default: the k3s pod CIDR) seeds Home
+    Assistant's `http.trusted_proxies` — without it, logins through the
+    ingress fail with HTTP 400.
 * **Port-forward fallback** — `kubectl port-forward svc/homeassistant 8123:8123`.
 
 ## Advanced: discovery and USB radios

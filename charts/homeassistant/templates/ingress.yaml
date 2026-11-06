@@ -20,7 +20,8 @@ spec:
   {{- end }}
   rules:
     {{- range .Values.ingress.hosts }}
-    - host: {{ .host | quote }}
+    {{- $h := .host }}
+    - {{- if $h }} host: {{ $h | quote }}{{ end }}
       http:
         paths:
           {{- range .paths }}

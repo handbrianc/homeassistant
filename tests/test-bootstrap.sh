@@ -63,7 +63,16 @@ chk_grep "$BSREPO/.env" 'STORAGE_SIZE="8Gi"' "T1 STORAGE_SIZE from existing PVC"
 chk_grep "$BSREPO/.env" 'SERVICE_TYPE="LoadBalancer"' "T1 SERVICE_TYPE LoadBalancer"
 chk_regex "$BSREPO/.env" '^NODE_PORT=""$' "T1 NODE_PORT empty under LB"
 chk_grep "$BSREPO/.env" 'INGRESS_CLASS="traefik"' "T1 INGRESS_CLASS detected"
-chk_grep "$BSREPO/.env" 'INGRESS_ENABLED="false"' "T1 INGRESS_ENABLED stays false"
+chk_grep "$BSREPO/.env" 'INGRESS_ENABLED="true"' "T1 ingress enabled by default (controller detected)"
+chk_regex "$BSREPO/.env" '^INGRESS_HOST=""$' "T1 catch-all (no host by default)"
+chk_grep "$BSREPO/.env" 'INGRESS_TLS_ENABLED="true"' "T1 ingress TLS on by default"
+chk_grep "$BSREPO/.env" 'INGRESS_TLS_SECRET_NAME="homeassistant-tls"' "T1 TLS secret name derived from release"
+chk_regex "$BSREPO/.env" '^INGRESS_TLS_CERT_FILE=""$' "T1 no cert file by default"
+chk_regex "$BSREPO/.env" '^INGRESS_TLS_KEY_FILE=""$' "T1 no key file by default"
+chk_regex "$BSREPO/.env" '^INGRESS_TLS_ISSUER=""$' "T1 no issuer by default"
+chk_grep "$BSREPO/.env" 'INGRESS_TRUSTED_PROXIES="10.42.0.0/16"' "T1 k3s pod CIDR as trusted proxies"
+chk_grep "$TESTS_TMP/bs1.out" "cert-manager detected" "T1 cert-manager presence reported"
+chk_grep "$TESTS_TMP/bs1.out" "enabled: true, tls: true" "T1 report shows ingress+TLS state"
 chk_grep "$BSREPO/.env" 'SECRETS_FILE="secrets.env"' "T1 SECRETS_FILE set"
 [ "$(find "$BSREPO" -maxdepth 1 -name '.env.backup-*' | wc -l)" = "1" ]; chk $? "T1 exactly one .env backup"
 grep -q 'OLDVALUE=1' "$BSREPO"/.env.backup-* 2>/dev/null
@@ -89,6 +98,9 @@ env -i PATH="$STUBS:$BASE_PATH" HOME="$H" HC_STUB_LOG="$TESTS_TMP/bs9.log" \
 chk_grep "$TESTS_TMP/bs9.out" "Europe/Berlin" "T9 dry-run renders bootstrap TIMEZONE"
 chk_grep "$TESTS_TMP/bs9.out" "longhorn" "T9 dry-run renders bootstrap STORAGE_CLASS"
 chk_grep "$TESTS_TMP/bs9.out" "homeassistant-secrets" "T9 dry-run uses the release secret"
+chk_grep "$TESTS_TMP/bs9.out" 'secretName: "homeassistant-tls"' "T9 dry-run renders TLS from bootstrap defaults"
+chk_grep "$TESTS_TMP/bs9.out" '- "10.42.0.0/16"' "T9 dry-run renders trusted proxies"
+chk_regex "$TESTS_TMP/bs9.out" '^    -$' "T9 dry-run renders the catch-all rule"
 
 # ============================== T2: batch fail -> interactive retry ==========
 fresh_repo "$BSREPO"
@@ -138,6 +150,39 @@ chk_grep "$BSREPO/.env" "KUBECONFIG=\"$H4/kc.yaml\"" "T4 existing kubeconfig ref
 [ -f "$BSREPO/secrets.env" ]; chk $? "T4 secrets.env scaffolded"
 [ "$(stat -c %a "$BSREPO/secrets.env")" = "600" ]; chk $? "T4 secrets.env mode 600"
 chk_grep "$TESTS_TMP/bs4.out" "export KUBECONFIG=" "T4 report prints KUBECONFIG export line"
+chk_grep "$BSREPO/.env" 'INGRESS_ENABLED="true"' "T4 ingress defaults on (review-only too)"
+
+# ============================== T4b: no ingress controller ====================
+fresh_repo "$BSREPO"
+H4b="$TESTS_TMP/home4b"
+mkdir -p "$H4b"
+: > "$H4b/kc.yaml"
+section "T4b: no ingress controller keeps ingress and TLS off"
+env -i PATH="$STUBS:$BASE_PATH" HOME="$H4b" KUBECONFIG="$H4b/kc.yaml" \
+  HC_STUB_LOG="$TESTS_TMP/bs4b.log" HC_STUB_KUBECONFIG="$KC_CANON" \
+  HC_STUB_NO_LB=1 HC_STUB_NO_RELEASE=1 HC_STUB_NO_PVC=1 HC_STUB_NO_INGRESS=1 \
+  bash "$BSREPO/scripts/bootstrap-cluster.sh" >"$TESTS_TMP/bs4b.out" 2>&1
+chk $? "T4b no-ingress run exits 0"
+chk_regex "$BSREPO/.env" '^INGRESS_ENABLED="false"$' "T4b ingress stays disabled"
+chk_regex "$BSREPO/.env" '^INGRESS_CLASS=""$' "T4b no ingress class"
+chk_regex "$BSREPO/.env" '^INGRESS_TLS_ENABLED="false"$' "T4b TLS off"
+chk_regex "$BSREPO/.env" '^INGRESS_TLS_SECRET_NAME=""$' "T4b no TLS secret name"
+chk_regex "$BSREPO/.env" '^INGRESS_TRUSTED_PROXIES=""$' "T4b no trusted proxies"
+chk_grep "$TESTS_TMP/bs4b.out" "No ingress controller detected" "T4b absence reported"
+
+# ============================== T4c: cert-manager absent ======================
+fresh_repo "$BSREPO"
+H4c="$TESTS_TMP/home4c"
+mkdir -p "$H4c"
+: > "$H4c/kc.yaml"
+section "T4c: cert-manager absent — cert/key file hint"
+env -i PATH="$STUBS:$BASE_PATH" HOME="$H4c" KUBECONFIG="$H4c/kc.yaml" \
+  HC_STUB_LOG="$TESTS_TMP/bs4c.log" HC_STUB_KUBECONFIG="$KC_CANON" \
+  HC_STUB_NO_LB=1 HC_STUB_NO_RELEASE=1 HC_STUB_NO_PVC=1 HC_STUB_NO_CERTMGR=1 \
+  bash "$BSREPO/scripts/bootstrap-cluster.sh" >"$TESTS_TMP/bs4c.out" 2>&1
+chk $? "T4c run exits 0"
+chk_grep "$TESTS_TMP/bs4c.out" "cert-manager not detected" "T4c cert-manager absence reported"
+chk_grep "$TESTS_TMP/bs4c.out" "INGRESS_TLS_CERT_FILE/INGRESS_TLS_KEY_FILE" "T4c file path hint"
 
 # ============================== T5: mixed arch ================================
 fresh_repo "$BSREPO"

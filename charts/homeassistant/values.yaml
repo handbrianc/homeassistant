@@ -101,8 +101,11 @@ ingress:
   enabled: false
   className: ""
   annotations: {}
+  # CIDRs trusted for X-Forwarded-For (seeded into the bootstrap
+  # configuration when enabled). k3s default pod CIDR: 10.42.0.0/16.
+  trustedProxies: []
   hosts:
-    - host: homeassistant.local
+    - host: homeassistant.local   # empty/absent host = catch-all rule
       paths:
         - path: /
           pathType: Prefix

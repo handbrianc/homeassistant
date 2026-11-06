@@ -72,6 +72,28 @@ else
   chk_grep "$OUT/ingress.yaml" "ha.example.com" "Ingress host"
   chk_grep "$OUT/ingress.yaml" "ingressClassName: traefik" "Ingress class"
 
+  _tpl "$OUT/ingress-catchall.yaml" --set ingress.enabled=true --set ingress.className=traefik \
+    --set-json 'ingress.hosts=[{"paths":[{"path":"/","pathType":"Prefix"}]}]'
+  [ $? = "0" ]; chk $? "catch-all Ingress values render"
+  chk_grep "$OUT/ingress-catchall.yaml" "kind: Ingress" "catch-all Ingress rendered"
+  chk_grep "$OUT/ingress-catchall.yaml" "backend:" "catch-all rule serves the release"
+  chk_nogrep "$OUT/ingress-catchall.yaml" "host:" "catch-all rule omits the host key"
+
+  _tpl "$OUT/ingress-tls.yaml" --set ingress.enabled=true \
+    --set ingress.hosts[0].host=ha.example.com --set ingress.tls[0].secretName=ha-tls \
+    --set ingress.tls[0].hosts[0]=ha.example.com
+  [ $? = "0" ]; chk $? "TLS values render"
+  chk_grep "$OUT/ingress-tls.yaml" "secretName: ha-tls" "TLS secretName rendered"
+  chk_grep "$OUT/ingress-tls.yaml" "tls:" "TLS block rendered"
+
+  _tpl "$OUT/cm-proxies.yaml" --set ingress.enabled=true \
+    --set 'ingress.trustedProxies={10.42.0.0/16}'
+  [ $? = "0" ]; chk $? "trustedProxies values render"
+  chk_grep "$OUT/cm-proxies.yaml" "use_x_forwarded_for: true" "X-Forwarded-For trust seeded"
+  chk_grep "$OUT/cm-proxies.yaml" "trusted_proxies:" "trusted_proxies list rendered"
+  chk_grep "$OUT/cm-proxies.yaml" '- "10.42.0.0/16"' "trusted proxy CIDR quoted"
+  chk_nogrep "$OUT/default.yaml" "trusted_proxies" "no trusted_proxies in default render"
+
   _tpl "$OUT/hostnet.yaml" --set hostNetwork=true
   [ $? = "0" ]; chk $? "hostNetwork values render"
   chk_grep "$OUT/hostnet.yaml" "hostNetwork: true" "hostNetwork on"
@@ -112,7 +134,7 @@ grep -q '^kubeVersion:' "$CHART/Chart.yaml"; chk $? "Chart.yaml declares kubeVer
 # Keys that scripts render against must exist in values.yaml (shared contract).
 for _k in '  tag:' 'timezone:' '  storageClass:' '  size:' '  type:' '  port:' \
           '  nodePort:' '  loadBalancerIP:' '  enabled:' '  className:' 'host:' \
-          'hostNetwork:' 'dnsPolicy:' 'envFromSecret:'; do
+          'trustedProxies:' 'hostNetwork:' 'dnsPolicy:' 'envFromSecret:'; do
   grep -qF -- "$_k" "$CHART/values.yaml"
   chk $? "values.yaml carries contract key ($_k)"
 done

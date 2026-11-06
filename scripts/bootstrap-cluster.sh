@@ -402,6 +402,12 @@ NODE_PORT=""
 INGRESS_ENABLED="false"
 INGRESS_CLASS=""
 INGRESS_HOST=""
+INGRESS_TLS_ENABLED="false"
+INGRESS_TLS_SECRET_NAME=""
+INGRESS_TLS_CERT_FILE=""
+INGRESS_TLS_KEY_FILE=""
+INGRESS_TLS_ISSUER=""
+INGRESS_TRUSTED_PROXIES=""
 HOST_NETWORK="false"
 IMAGE_TAG=""
 RELEASE_EXISTS=0
@@ -454,14 +460,24 @@ review_ingress_class() {
   _classes="$(kubectl get ingressclasses -o go-template='{{range .items}}{{.metadata.name}}{{"\n"}}{{end}}' 2>/dev/null || true)"
   if printf '%s\n' "$_classes" | grep -qx traefik; then
     INGRESS_CLASS="traefik"
-    log_ok "Ingress class 'traefik' available (INGRESS_ENABLED stays false — opt-in)."
   else
     INGRESS_CLASS="$(printf '%s\n' "$_classes" | grep -v '^$' | head -n 1 || true)"
-    if [ -n "$INGRESS_CLASS" ]; then
-      log_ok "Ingress class '$INGRESS_CLASS' available (INGRESS_ENABLED stays false — opt-in)."
+  fi
+  if [ -n "$INGRESS_CLASS" ]; then
+    INGRESS_ENABLED="true"
+    INGRESS_TLS_ENABLED="true"
+    INGRESS_TLS_SECRET_NAME="${RELEASE_NAME}-tls"
+    # k3s default pod CIDR; adjust in .env if the pod network differs.
+    INGRESS_TRUSTED_PROXIES="10.42.0.0/16"
+    log_ok "Ingress controller '$INGRESS_CLASS' detected — INGRESS_ENABLED=true with TLS on (catch-all rule; set INGRESS_HOST for a hostname)."
+    if kubectl get crd certificates.cert-manager.io >/dev/null 2>&1; then
+      log_info "cert-manager detected — set INGRESS_TLS_ISSUER=<cluster-issuer> in .env for automatic certificates."
     else
-      log_info "No ingress controller detected — INGRESS_CLASS left empty."
+      log_info "cert-manager not detected — for a trusted certificate set INGRESS_TLS_CERT_FILE/INGRESS_TLS_KEY_FILE in .env (or install cert-manager)."
     fi
+    log_info "INGRESS_TRUSTED_PROXIES defaults to the k3s pod CIDR (10.42.0.0/16) — adjust it in .env if your pod network differs."
+  else
+    log_info "No ingress controller detected — ingress stays disabled (INGRESS_ENABLED=false)."
   fi
 }
 
@@ -595,6 +611,12 @@ write_env_file() {
   assert_yaml_safe INGRESS_ENABLED   "$INGRESS_ENABLED"
   assert_yaml_safe INGRESS_CLASS     "$INGRESS_CLASS"
   assert_yaml_safe INGRESS_HOST      "$INGRESS_HOST"
+  assert_yaml_safe INGRESS_TLS_ENABLED     "$INGRESS_TLS_ENABLED"
+  assert_yaml_safe INGRESS_TLS_SECRET_NAME "$INGRESS_TLS_SECRET_NAME"
+  assert_yaml_safe INGRESS_TLS_CERT_FILE   "$INGRESS_TLS_CERT_FILE"
+  assert_yaml_safe INGRESS_TLS_KEY_FILE    "$INGRESS_TLS_KEY_FILE"
+  assert_yaml_safe INGRESS_TLS_ISSUER      "$INGRESS_TLS_ISSUER"
+  assert_yaml_safe INGRESS_TRUSTED_PROXIES "$INGRESS_TRUSTED_PROXIES"
   assert_yaml_safe HOST_NETWORK      "$HOST_NETWORK"
   assert_yaml_safe SECRETS_FILE      "secrets.env"
   assert_yaml_safe VALUES_EXTRA      "$VALUES_EXTRA"
@@ -641,10 +663,25 @@ SERVICE_PORT="$SERVICE_PORT"
 LOADBALANCER_IP="$LOADBALANCER_IP"
 # (cluster) fixed NodePort fallback (30000-32767)
 NODE_PORT="$NODE_PORT"
-# (cluster) ingress class available; enabling stays opt-in
+# (cluster) ingress controller detected — enabled with TLS by default;
+# set INGRESS_HOST for a hostname rule (empty = catch-all, any host that
+# reaches the ingress works, e.g. https://<node-ip>)
 INGRESS_ENABLED="$INGRESS_ENABLED"
 INGRESS_CLASS="$INGRESS_CLASS"
 INGRESS_HOST="$INGRESS_HOST"
+# Ingress TLS. Provide a PEM pair (install.sh applies them as the
+# kubernetes.io/tls Secret INGRESS_TLS_SECRET_NAME), or set INGRESS_TLS_ISSUER
+# when cert-manager is installed (cluster-derived: detected at bootstrap).
+# Until a real certificate is provisioned the controller serves its default
+# self-signed certificate.
+INGRESS_TLS_ENABLED="$INGRESS_TLS_ENABLED"
+INGRESS_TLS_SECRET_NAME="$INGRESS_TLS_SECRET_NAME"
+INGRESS_TLS_CERT_FILE="$INGRESS_TLS_CERT_FILE"
+INGRESS_TLS_KEY_FILE="$INGRESS_TLS_KEY_FILE"
+INGRESS_TLS_ISSUER="$INGRESS_TLS_ISSUER"
+# CIDRs Home Assistant must trust for X-Forwarded-For — logins through the
+# ingress fail with HTTP 400 without them. Default: k3s pod CIDR.
+INGRESS_TRUSTED_PROXIES="$INGRESS_TRUSTED_PROXIES"
 # mDNS/SSDP/UPnP discovery — opt-in, binds a node's host network
 HOST_NETWORK="$HOST_NETWORK"
 
@@ -689,7 +726,7 @@ print_report() {
   log_ok "  STORAGE_CLASS:  ${STORAGE_CLASS:-<cluster default>}"
   log_ok "  STORAGE_SIZE:   $STORAGE_SIZE"
   log_ok "  SERVICE_TYPE:   $SERVICE_TYPE${NODE_PORT:+ (nodePort $NODE_PORT)}"
-  log_ok "  INGRESS_CLASS:  ${INGRESS_CLASS:-<none detected>} (enabled: $INGRESS_ENABLED)"
+  log_ok "  INGRESS_CLASS:  ${INGRESS_CLASS:-<none detected>} (enabled: $INGRESS_ENABLED, tls: $INGRESS_TLS_ENABLED)"
 
   if [ -n "$LOCAL_SECRET_KEYS" ]; then
     log_ok "  secrets.env keys:       $(printf '%s' "$LOCAL_SECRET_KEYS" | tr '\n' ' ')"

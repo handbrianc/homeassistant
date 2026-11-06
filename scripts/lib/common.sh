@@ -18,7 +18,10 @@
 #   KUBECONFIG NAMESPACE RELEASE_NAME CHART_DIR HELM_TIMEOUT VALUES_EXTRA
 #   IMAGE_TAG TIMEZONE NODE_ARCH STORAGE_CLASS STORAGE_SIZE SERVICE_TYPE
 #   SERVICE_PORT LOADBALANCER_IP NODE_PORT INGRESS_ENABLED INGRESS_CLASS
-#   INGRESS_HOST HOST_NETWORK SECRETS_FILE DRY_RUN HC_DRY_RUN SECRET_NAME
+#   INGRESS_HOST INGRESS_TLS_ENABLED INGRESS_TLS_SECRET_NAME
+#   INGRESS_TLS_CERT_FILE INGRESS_TLS_KEY_FILE INGRESS_TLS_ISSUER
+#   INGRESS_TRUSTED_PROXIES
+#   HOST_NETWORK SECRETS_FILE DRY_RUN HC_DRY_RUN SECRET_NAME
 #   ENV_FROM_SECRET
 #
 # shellcheck disable=SC2154  # entry script owns these; see block above
@@ -171,6 +174,12 @@ apply_defaults() {
   : "${INGRESS_ENABLED:=false}"
   : "${INGRESS_CLASS:=}"
   : "${INGRESS_HOST:=}"
+  : "${INGRESS_TLS_ENABLED:=false}"
+  : "${INGRESS_TLS_SECRET_NAME:=}"
+  : "${INGRESS_TLS_CERT_FILE:=}"
+  : "${INGRESS_TLS_KEY_FILE:=}"
+  : "${INGRESS_TLS_ISSUER:=}"
+  : "${INGRESS_TRUSTED_PROXIES:=}"
   : "${HOST_NETWORK:=false}"
   # --- Secrets
   : "${SECRETS_FILE:=secrets.env}"
@@ -234,6 +243,12 @@ assert_all_values_safe() {
   assert_yaml_safe INGRESS_ENABLED  "$INGRESS_ENABLED"
   assert_yaml_safe INGRESS_CLASS    "$INGRESS_CLASS"
   assert_yaml_safe INGRESS_HOST     "$INGRESS_HOST"
+  assert_yaml_safe INGRESS_TLS_ENABLED     "$INGRESS_TLS_ENABLED"
+  assert_yaml_safe INGRESS_TLS_SECRET_NAME "${INGRESS_TLS_SECRET_NAME:-}"
+  assert_yaml_safe INGRESS_TLS_CERT_FILE   "${INGRESS_TLS_CERT_FILE:-}"
+  assert_yaml_safe INGRESS_TLS_KEY_FILE    "${INGRESS_TLS_KEY_FILE:-}"
+  assert_yaml_safe INGRESS_TLS_ISSUER      "${INGRESS_TLS_ISSUER:-}"
+  assert_yaml_safe INGRESS_TRUSTED_PROXIES "${INGRESS_TRUSTED_PROXIES:-}"
   assert_yaml_safe HOST_NETWORK     "$HOST_NETWORK"
   assert_yaml_safe SECRETS_FILE     "$SECRETS_FILE"
   assert_yaml_safe VALUES_EXTRA     "$VALUES_EXTRA"
@@ -314,6 +329,62 @@ create_or_update_secret() {
   assert_yaml_safe ENV_FROM_SECRET "$ENV_FROM_SECRET"
 }
 
+# ingress_tls_secret_name — the Secret name for the ingress TLS certificate:
+# INGRESS_TLS_SECRET_NAME when set, else "<release>-tls".
+ingress_tls_secret_name() {
+  if [ -n "$INGRESS_TLS_SECRET_NAME" ]; then
+    printf '%s\n' "$INGRESS_TLS_SECRET_NAME"
+  else
+    printf '%s\n' "${RELEASE_NAME}-tls"
+  fi
+}
+
+# create_or_update_tls_secret — applies INGRESS_TLS_CERT_FILE/INGRESS_TLS_KEY_FILE
+# as the kubernetes.io/tls Secret named ingress_tls_secret_name in NAMESPACE via
+# a client-side dry run piped to kubectl apply (same pattern as the app Secret).
+# Never prints certificate or key contents. When TLS is enabled without cert
+# files and without INGRESS_TLS_ISSUER it warns and continues (the ingress
+# controller then serves its default self-signed certificate); a half-specified
+# or unreadable file pair is fatal.
+create_or_update_tls_secret() {
+  _tls_enabled=""
+  if ! _tls_enabled="$(parse_bool "$INGRESS_TLS_ENABLED")"; then
+    die "INGRESS_TLS_ENABLED must be 'true' or 'false' (case-insensitive), got: '$INGRESS_TLS_ENABLED'"
+  fi
+  if [ "$_tls_enabled" != "true" ]; then
+    return 0
+  fi
+  _tls_name="$(ingress_tls_secret_name)"
+  if [ -z "$INGRESS_TLS_CERT_FILE" ] && [ -z "$INGRESS_TLS_KEY_FILE" ]; then
+    if [ -n "$INGRESS_TLS_ISSUER" ]; then
+      log_info "Ingress TLS: certificates are managed by cert-manager (cluster-issuer '$INGRESS_TLS_ISSUER')."
+    else
+      log_warn "Ingress TLS enabled without INGRESS_TLS_CERT_FILE/INGRESS_TLS_KEY_FILE and without INGRESS_TLS_ISSUER."
+      log_warn "Secret '$_tls_name' must be provisioned (own files, or cert-manager via INGRESS_TLS_ISSUER); until then the ingress controller serves its default self-signed certificate."
+    fi
+    return 0
+  fi
+  if [ -z "$INGRESS_TLS_CERT_FILE" ] || [ -z "$INGRESS_TLS_KEY_FILE" ]; then
+    die "INGRESS_TLS_CERT_FILE and INGRESS_TLS_KEY_FILE must be set together (cert='${INGRESS_TLS_CERT_FILE:-<unset>}' key='${INGRESS_TLS_KEY_FILE:-<unset>}')."
+  fi
+  if [ ! -f "$INGRESS_TLS_CERT_FILE" ] || [ ! -r "$INGRESS_TLS_CERT_FILE" ]; then
+    die "INGRESS_TLS_CERT_FILE not found or not readable: '$INGRESS_TLS_CERT_FILE'"
+  fi
+  if [ ! -f "$INGRESS_TLS_KEY_FILE" ] || [ ! -r "$INGRESS_TLS_KEY_FILE" ]; then
+    die "INGRESS_TLS_KEY_FILE not found or not readable: '$INGRESS_TLS_KEY_FILE'"
+  fi
+  if [ "${HC_DRY_RUN:-0}" = "1" ]; then
+    log_info "[dry-run] kubectl create secret tls \"$_tls_name\" --cert=\"$INGRESS_TLS_CERT_FILE\" --key=\"$INGRESS_TLS_KEY_FILE\" --dry-run=client -o yaml | kubectl apply -f - -n \"$NAMESPACE\""
+  else
+    log_info "Applying TLS Secret '$_tls_name' in namespace '$NAMESPACE' (certificate/key contents are never printed)..."
+    if ! kubectl create secret tls "$_tls_name" --cert="$INGRESS_TLS_CERT_FILE" --key="$INGRESS_TLS_KEY_FILE" --dry-run=client -o yaml |
+         kubectl apply -f - -n "$NAMESPACE"; then
+      die "Failed to create/update TLS Secret '$_tls_name' in namespace '$NAMESPACE'."
+    fi
+    log_ok "TLS Secret '$_tls_name' applied."
+  fi
+}
+
 # --- Generated values file ------------------------------------------------------
 # render_values_file OUTFILE — writes the generated Helm values (YAML) from the
 # effective environment, per the shared env -> values mapping contract
@@ -323,12 +394,16 @@ render_values_file() {
   _rvf_out="$1"
   _rvf_ingress_enabled=0
   _rvf_host_network=0
+  _rvf_tls_enabled=0
 
   if ! _rvf_ingress_enabled="$(parse_bool "$INGRESS_ENABLED")"; then
     die "INGRESS_ENABLED must be 'true' or 'false' (case-insensitive), got: '$INGRESS_ENABLED'"
   fi
   if ! _rvf_host_network="$(parse_bool "$HOST_NETWORK")"; then
     die "HOST_NETWORK must be 'true' or 'false' (case-insensitive), got: '$HOST_NETWORK'"
+  fi
+  if ! _rvf_tls_enabled="$(parse_bool "$INGRESS_TLS_ENABLED")"; then
+    die "INGRESS_TLS_ENABLED must be 'true' or 'false' (case-insensitive), got: '$INGRESS_TLS_ENABLED'"
   fi
   if [ -n "$SERVICE_PORT" ]; then
     assert_int SERVICE_PORT "$SERVICE_PORT"
@@ -363,12 +438,35 @@ render_values_file() {
     printf '%s\n' "ingress:"
     printf '  enabled: %s\n' "$_rvf_ingress_enabled"
     if [ -n "$INGRESS_CLASS" ]; then printf '  className: "%s"\n' "$INGRESS_CLASS"; fi
-    if [ -n "$INGRESS_HOST" ]; then
+    if [ -n "$INGRESS_TLS_ISSUER" ]; then
+      printf '%s\n' "  annotations:"
+      printf '    cert-manager.io/cluster-issuer: "%s"\n' "$INGRESS_TLS_ISSUER"
+    fi
+    if [ -n "$INGRESS_TRUSTED_PROXIES" ]; then
+      printf '%s\n' "  trustedProxies:"
+      printf '%s\n' "$INGRESS_TRUSTED_PROXIES" | tr ', \t' '\n' | while IFS= read -r _rvf_cidr; do
+        [ -n "$_rvf_cidr" ] || continue
+        printf '    - "%s"\n' "$_rvf_cidr"
+      done
+    fi
+    if [ "$_rvf_ingress_enabled" = "true" ]; then
       printf '%s\n' "  hosts:"
-      printf '    - host: "%s"\n' "$INGRESS_HOST"
+      if [ -n "$INGRESS_HOST" ]; then
+        printf '    - host: "%s"\n' "$INGRESS_HOST"
+      else
+        printf '%s\n' "    -"
+      fi
       printf '%s\n' "      paths:"
       printf '%s\n' "        - path: /"
       printf '%s\n' "          pathType: Prefix"
+    fi
+    if [ "$_rvf_tls_enabled" = "true" ]; then
+      printf '%s\n' "  tls:"
+      printf '    - secretName: "%s"\n' "$(ingress_tls_secret_name)"
+      if [ -n "$INGRESS_HOST" ]; then
+        printf '%s\n' "      hosts:"
+        printf '        - "%s"\n' "$INGRESS_HOST"
+      fi
     fi
     printf '%s\n' ""
     printf 'hostNetwork: %s\n' "$_rvf_host_network"

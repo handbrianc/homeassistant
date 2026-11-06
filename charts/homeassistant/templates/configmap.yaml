@@ -13,4 +13,16 @@ metadata:
 data:
   configuration.yaml: |
 {{ .Values.bootstrapConfig.configuration | nindent 4 }}
+{{- if and .Values.ingress.enabled .Values.ingress.trustedProxies }}
+
+    # Reverse-proxy trust: without these lines Home Assistant rejects
+    # X-Forwarded-For from the ingress controller and logins through the
+    # ingress fail with HTTP 400. Adjust the CIDRs to your pod network.
+    http:
+      use_x_forwarded_for: true
+      trusted_proxies:
+      {{- range .Values.ingress.trustedProxies }}
+        - {{ . | quote }}
+      {{- end }}
+{{- end }}
 {{- end }}

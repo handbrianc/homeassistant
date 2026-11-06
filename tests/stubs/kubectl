@@ -3,8 +3,8 @@
 # canned go-template/jsonpath outputs. NEVER a real binary: tests put this
 # FIRST on PATH inside env -i, so a real cluster can never be reached.
 # Knobs: HC_STUB_ARCHS, HC_STUB_NO_LB=1, HC_STUB_NO_INGRESS=1, HC_STUB_NO_PVC=1,
-#        HC_STUB_NO_RELEASE=1 (also blanks the StatefulSet image), HC_STUB_NO_STS=1,
-#        HC_STUB_NODES_FAIL=1, HC_STUB_ROLLOUT_FAIL=1,
+#        HC_STUB_NO_CERTMGR=1, HC_STUB_NO_RELEASE=1 (also blanks the StatefulSet image),
+#        HC_STUB_NO_STS=1, HC_STUB_NODES_FAIL=1, HC_STUB_ROLLOUT_FAIL=1,
 #        HC_STUB_SVC_MODE=lb|pending|nodeport|none.
 echo "kubectl $*" >> "${HC_STUB_LOG:?}"
 case "$*" in
@@ -22,6 +22,10 @@ case "$*" in
     ;;
   *'get ingressclasses'*)
     if [ "${HC_STUB_NO_INGRESS:-0}" = "1" ]; then :; else printf 'traefik\n'; fi
+    ;;
+  *'certificates.cert-manager.io'*)
+    if [ "${HC_STUB_NO_CERTMGR:-0}" = "1" ]; then exit 1; fi
+    exit 0
     ;;
   *'get namespace'*)
     exit 0
