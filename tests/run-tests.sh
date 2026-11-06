@@ -52,7 +52,7 @@ fi
 # --- coverage: every script has a committed test file -------------------------------
 printf '\n== coverage ==\n'
 for pair in install:test-install update:test-update bootstrap-cluster:test-bootstrap \
-            install-prereqs:test-install-prereqs; do
+            install-prereqs:test-install-prereqs uninstall:test-uninstall; do
   _s="${pair%%:*}"
   _t="${pair#*:}"
   if [ -f "tests/$_t.sh" ]; then

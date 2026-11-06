@@ -30,6 +30,9 @@ case "$*" in
   *'get namespace'*)
     exit 0
     ;;
+  *'get pvc'*'-o name'*)
+    if [ "${HC_STUB_NO_PVC:-0}" = "1" ]; then :; else printf 'persistentvolumeclaim/homeassistant-config\n'; fi
+    ;;
   *'get pvc'*)
     if [ "${HC_STUB_NO_PVC:-0}" = "1" ]; then :; else printf '8Gi\tlonghorn\n'; fi
     ;;

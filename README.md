@@ -211,7 +211,35 @@ when complete (specs merge into `openspec/specs/`).
 
 ## Uninstalling
 
+`scripts/uninstall.sh` removes the release and keeps your data by default — a
+plain `helm uninstall` would delete the chart's PVC (all Home Assistant data),
+because the PVC is an ordinary release resource.
+
 ```bash
-helm uninstall homeassistant -n homeassistant
-kubectl delete pvc -l app.kubernetes.io/instance=homeassistant -n homeassistant  # deletes data!
+scripts/uninstall.sh                      # remove the release; the data volume survives
+scripts/uninstall.sh --purge-data         # remove the release AND the data volume — all data lost
+scripts/uninstall.sh --keep-secrets       # keep <release>-secrets and the TLS secret
+scripts/uninstall.sh --delete-namespace   # also remove the namespace (everything left in it goes)
+scripts/uninstall.sh --dry-run            # print the plan without touching the cluster
+```
+
+* **Data preserved by default** — before the uninstall, the release's PVC(s)
+  are annotated `helm.sh/resource-policy=keep`, so helm keeps them; re-running
+  `install.sh` re-adopts the existing volume. `--purge-data` deletes the
+  PVC(s) after the uninstall (including ones kept by an earlier uninstall) —
+  all Home Assistant data (configuration, users, history) is lost. Externally
+  provided claims (`persistence.existingClaim`) are never touched.
+* **Secrets cleaned** — `<release>-secrets` and the ingress TLS secret
+  (`INGRESS_TLS_SECRET_NAME`, default `<release>-tls`) are deleted unless
+  `--keep-secrets`; secret values are never printed.
+* The uninstall-only switches also work as environment variables
+  (`PURGE_DATA`, `KEEP_SECRETS`, `DELETE_NAMESPACE`); flags win. They are not
+  part of the shared `.env` contract.
+
+Pure-helm users (no installer): annotate the PVC before uninstalling, or helm
+deletes the data with the release:
+
+```bash
+kubectl annotate pvc <fullname>-config -n <namespace> helm.sh/resource-policy=keep --overwrite
+helm uninstall <release> -n <namespace>
 ```
