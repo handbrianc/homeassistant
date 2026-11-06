@@ -42,6 +42,7 @@ chk_grep "$TESTS_TMP/dry.out" 'envFromSecret: ""' "no secrets -> empty envFromSe
 chk_grep "$TESTS_TMP/dry.out" "Secrets file not found" "missing secrets warned"
 chk_regex "$TESTS_TMP/dry.out" 'upgrade --install homeassistant .* --create-namespace --rollback-on-failure' "helm command carries create-namespace + rollback-on-failure (preview default)"
 chk_grep "$TESTS_TMP/dry.out" "Dry-run complete" "dry-run completes"
+chk_grep "$TESTS_TMP/dry.out" "skipping the full manifest render" "no-helm dry-run notes the skipped render"
 env -i PATH="$BASE_PATH" DRY_RUN=1 HOME="$TESTS_TMP/home" bash "$R/scripts/install.sh" >"$TESTS_TMP/dry2.out" 2>&1
 [ $? = "0" ]; chk $? "DRY_RUN=1 environment also drives dry-run"
 chk_grep "$TESTS_TMP/dry2.out" "DRY-RUN" "DRY_RUN=1 announced"
@@ -99,6 +100,13 @@ chk_regex "$TESTS_TMP/dry6.out" '^    -$' "catch-all rule rendered (no host key)
 chk_grep "$TESTS_TMP/dry6.out" 'secretName: "homeassistant-tls"' "tls secretName rendered"
 chk_grep "$TESTS_TMP/dry6.out" '- "10.42.0.0/16"' "trusted proxies rendered"
 chk_grep "$TESTS_TMP/dry6.out" 'host=<catch-all>' "config line shows catch-all host"
+
+# with the mock toolchain, dry-run also renders the full manifests
+env -i PATH="$STUBS:$BASE_PATH" HOME="$TESTS_TMP/home" HC_STUB_LOG="$TESTS_TMP/dry7.log" \
+  bash "$R/scripts/install.sh" --dry-run >"$TESTS_TMP/dry7.out" 2>&1
+[ $? = "0" ]; chk $? "dry-run with mock helm renders manifests"
+chk_grep "$TESTS_TMP/dry7.out" "----- BEGIN rendered manifests -----" "manifests previewed in dry-run"
+chk_grep "$TESTS_TMP/dry7.log" "helm template homeassistant" "mock log: helm template served (dry-run)"
 
 # unsafe values and bad chart path abort before anything happens
 printf "STORAGE_CLASS='a\"b'\n" > "$R2/.env"

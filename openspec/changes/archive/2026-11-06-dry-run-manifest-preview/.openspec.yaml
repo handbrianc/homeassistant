@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-11-06
+goal: Dry-run renders the full chart configuration via helm template when helm
+  is available

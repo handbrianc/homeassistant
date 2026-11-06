@@ -517,6 +517,43 @@ print_helm_cmd() {
   printf '\n'
 }
 
+# dry_run_render_manifests — dry-run only. When helm is available, renders the
+# full chart configuration via `helm template` with the exact values the real
+# upgrade would receive (offline; no cluster access), framed with BEGIN/END
+# rendered-manifests markers. The render runs at the chart's minimum supported
+# Kubernetes version parsed from Chart.yaml (helm 4's built-in template
+# default is older than this chart's kubeVersion floor); the real upgrade
+# still validates kubeVersion against the actual API server. Without helm,
+# prints a note — the generated values file above remains authoritative. A
+# failing render warns instead of aborting.
+dry_run_render_manifests() {
+  if ! command -v helm >/dev/null 2>&1; then
+    log_info "helm not on PATH — skipping the full manifest render (the generated values file above is exactly what the upgrade would receive)."
+    return 0
+  fi
+  DRYRUN_ARGS=("template" "$RELEASE_NAME" "$CHART_DIR" "--namespace" "$NAMESPACE")
+  DRYRUN_ARGS+=("-f" "$VALUES_GENERATED")
+  if [ -n "$VALUES_EXTRA" ]; then
+    DRYRUN_ARGS+=("-f" "$VALUES_EXTRA")
+  fi
+  DRYRUN_ARGS+=("--set" "envFromSecret=$ENV_FROM_SECRET" "--set" "image.tag=$IMAGE_TAG")
+  _drm_kube="$(awk -F'"' '/^kubeVersion:/ { print $2; exit }' "$CHART_DIR/Chart.yaml" 2>/dev/null || true)"
+  case "$_drm_kube" in
+    ">=1."*)
+      _drm_kube="${_drm_kube#>=}"
+      _drm_kube="${_drm_kube%%-0}"
+      DRYRUN_ARGS+=("--kube-version" "$_drm_kube")
+      ;;
+  esac
+  log_info "Rendering the full chart configuration with helm (offline; kube-version ${_drm_kube:-<helm default>}):"
+  log_info "  helm ${DRYRUN_ARGS[*]}"
+  printf '%s\n' "----- BEGIN rendered manifests -----"
+  if ! helm "${DRYRUN_ARGS[@]}"; then
+    log_warn "helm template failed — the generated values file above is still exactly what the upgrade would receive."
+  fi
+  printf '%s\n' "----- END rendered manifests -----"
+}
+
 # --- Rollout wait ------------------------------------------------------------------
 # wait_for_rollout — waits for the release's StatefulSet rollout, found via the
 # standard helm label app.kubernetes.io/instance=<release>.

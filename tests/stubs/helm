@@ -2,9 +2,14 @@
 # Mock helm (tests/stubs/). Logs every call to $HC_STUB_LOG and serves canned
 # responses. NEVER a real binary: tests put this FIRST on PATH inside env -i.
 # Knobs: HC_STUB_HELM_VERSION (default v3.22.1), HC_STUB_HELM_FAIL=1,
-#        HC_STUB_NO_RELEASE=1, HC_STUB_HIST_ONE=1, HC_STUB_HIST_EMPTY=1.
+#        HC_STUB_TEMPLATE_FAIL=1, HC_STUB_NO_RELEASE=1, HC_STUB_HIST_ONE=1,
+#        HC_STUB_HIST_EMPTY=1.
 echo "helm $*" >> "${HC_STUB_LOG:?}"
 case "$*" in
+  *'template'*)
+    if [ "${HC_STUB_TEMPLATE_FAIL:-0}" = "1" ]; then exit 1; fi
+    exit 0
+    ;;
   *'version'*)
     printf '%s\n' "${HC_STUB_HELM_VERSION:-v3.22.1}"
     ;;

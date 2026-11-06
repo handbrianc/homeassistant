@@ -264,6 +264,27 @@ chk $? "issuer set: cert-manager path noted"
 ! printf '%s' "$_tls_cm" | grep -qF 'self-signed'
 chk $? "issuer set: no self-signed warning"
 
+section "dry_run_render_manifests"
+_vals="$TESTS_TMP/drm-values.yaml"
+_drm_no="$(PATH="/usr/bin:/bin" librun "RELEASE_NAME=rel; CHART_DIR='$REPO_ROOT/charts/homeassistant'; NAMESPACE=ns; VALUES_GENERATED='$_vals'; VALUES_EXTRA=; ENV_FROM_SECRET=rel-secrets; IMAGE_TAG=2026.11.0; dry_run_render_manifests")"
+printf '%s' "$_drm_no" | grep -qF 'skipping the full manifest render'
+chk $? "no helm: render skipped with note"
+! printf '%s' "$_drm_no" | grep -qF 'BEGIN rendered manifests'
+chk $? "no helm: no manifest markers"
+_drm_stub="$(HC_STUB_LOG="$TESTS_TMP/drm.log" librun_stub "RELEASE_NAME=rel; CHART_DIR='$REPO_ROOT/charts/homeassistant'; NAMESPACE=ns; VALUES_GENERATED='$_vals'; VALUES_EXTRA='/extra.yaml'; ENV_FROM_SECRET=rel-secrets; IMAGE_TAG=2026.11.0; dry_run_render_manifests" 2>&1)"
+printf '%s' "$_drm_stub" | grep -qF 'BEGIN rendered manifests'
+chk $? "helm present: manifest markers printed"
+printf '%s' "$_drm_stub" | grep -qF 'END rendered manifests'
+chk $? "helm present: markers closed"
+chk_grep "$TESTS_TMP/drm.log" "helm template rel" "mock log: helm template served"
+chk_grep "$TESTS_TMP/drm.log" "-f /extra.yaml" "mock log: extra values included"
+chk_grep "$TESTS_TMP/drm.log" "--kube-version 1.25.0" "mock log: chart kubeVersion floor applied"
+_drm_fail="$(HC_STUB_TEMPLATE_FAIL=1 HC_STUB_LOG="$TESTS_TMP/drm2.log" librun_stub "RELEASE_NAME=rel; CHART_DIR='$REPO_ROOT/charts/homeassistant'; NAMESPACE=ns; VALUES_GENERATED='$_vals'; VALUES_EXTRA=; ENV_FROM_SECRET=rel-secrets; IMAGE_TAG=2026.11.0; dry_run_render_manifests" 2>&1)"
+printf '%s' "$_drm_fail" | grep -qF 'helm template failed'
+chk $? "failing render warns instead of aborting"
+printf '%s' "$_drm_fail" | grep -qF 'END rendered manifests'
+chk $? "failing render still closes the markers"
+
 section "require_helm"
 PATH="$STUBS:$BASE_PATH" librun 'require_helm' >"$TESTS_TMP/rh.out" 2>&1
 [ $? = "0" ]; chk $? "helm v3 accepted"

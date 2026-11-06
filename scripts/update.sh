@@ -182,6 +182,7 @@ if [ "$HC_DRY_RUN" = "1" ]; then
   log_info "  $HELM_CMD"
   log_info "  kubectl rollout status statefulset/<release-statefulset> -n \"$NAMESPACE\" --timeout=\"$HELM_TIMEOUT\"  # statefulset resolved at runtime via label app.kubernetes.io/instance=$RELEASE_NAME"
   log_info "  helm history $RELEASE_NAME -n \"$NAMESPACE\"  # prints revision history + rollback hint"
+  dry_run_render_manifests
   log_ok "Dry-run complete: no cluster access was performed."
   exit 0
 fi
