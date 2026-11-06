@@ -165,6 +165,21 @@ and the [design contract](openspec/changes/archive/2026-11-05-initialize-homeass
 | Update broke HA | `helm history homeassistant` then `helm rollback homeassistant <rev>` |
 | Config resets on every pod start | you replaced `/config/configuration.yaml` with a mount — mount extra config via `extraVolumes`/`extraVolumeMounts` values instead |
 
+## Testing
+
+```bash
+tests/run-tests.sh                 # everything: syntax gate, shellcheck, all tests
+tests/run-tests.sh bootstrap       # subset by name (see tests/README.md)
+```
+
+The suite is dry-run/mock based and **never touches your cluster**:
+install/update tests use their built-in `--dry-run`, cluster calls run against
+committed mock binaries (`tests/stubs/`) inside `env -i` environments, and the
+runner fails if anything leaks into the repo tree. Real downloads in the
+prerequisites tests are opt-in (`HC_TEST_NETWORK=1`). Chart tests use
+`HELM_BIN=/path/to/helm` when helm is not on PATH (they skip otherwise).
+See `tests/README.md` for the full guarantees and mock knobs.
+
 ## Development workflow (OpenSpec)
 
 This repo uses [OpenSpec](https://openspec.dev) (spec-driven development) and

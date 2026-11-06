@@ -1,0 +1,14 @@
+#!/bin/sh
+# Mock scp (tests/stubs/). Copies $HC_STUB_KUBECONFIG to the last argument
+# (the destination), or fails when HC_STUB_SCP_FAIL=1 (driving the script
+# into its 'sudo cat' fallback).
+echo "scp $*" >> "${HC_STUB_LOG:?}"
+if [ "${HC_STUB_SCP_FAIL:-0}" = "1" ]; then
+  echo "scp: Permission denied (simulated)" >&2
+  exit 1
+fi
+dest=""
+for a in "$@"; do
+  dest="$a"
+done
+cp "${HC_STUB_KUBECONFIG:?}" "$dest"

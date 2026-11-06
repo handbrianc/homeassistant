@@ -1,0 +1,34 @@
+#!/bin/sh
+# Mock ssh (tests/stubs/). Simulates key installation (idempotent, tracked in
+# $HC_STUB_AK), timezone probing and the 'sudo cat' kubeconfig fallback.
+# Knobs: HC_STUB_SSH_BATCH_FAIL=1 (fails the BatchMode key-install attempt),
+#        HC_STUB_AK (authorized_keys fixture file), HC_STUB_KUBECONFIG.
+echo "ssh $*" >> "${HC_STUB_LOG:?}"
+case "$*" in
+  *"grep -qxF"*)
+    case "$*" in
+      *"BatchMode=yes"*)
+        if [ "${HC_STUB_SSH_BATCH_FAIL:-0}" = "1" ]; then exit 255; fi
+        ;;
+    esac
+    ak="${HC_STUB_AK:?}"
+    mkdir -p "$(dirname "$ak")"
+    touch "$ak"
+    key=$(printf '%s\n' "$*" | sed -n "s/.*grep -qxF '\([^']*\)'.*/\1/p")
+    if [ -n "$key" ] && ! grep -qxF "$key" "$ak"; then
+      printf '%s\n' "$key" >> "$ak"
+    fi
+    exit 0
+    ;;
+  *"timedatectl"*)
+    printf 'Europe/Berlin\n'
+    exit 0
+    ;;
+  *"sudo cat"*)
+    cat "${HC_STUB_KUBECONFIG:?}"
+    exit 0
+    ;;
+  *)
+    exit 0
+    ;;
+esac

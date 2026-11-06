@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-11-06
+goal: "Committed test suite for all scripts: dry-run and mock-based, never
+  touching a real cluster"
