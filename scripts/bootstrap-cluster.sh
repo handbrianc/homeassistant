@@ -28,7 +28,7 @@
 #     --remote-config PATH    Remote kubeconfig (default:
 #                             /etc/rancher/k3s/k3s.yaml)
 #     --kubeconfig-dest PATH  Where to install the kubeconfig (default:
-#                             ~/.kube/config.yaml)
+#                             ~/.kube/config)
 #     --kubeconfig PATH       Use this existing kubeconfig instead of
 #                             fetching (implies review-only; not with --host)
 #     --namespace NS          Target namespace (default: homeassistant)
@@ -78,7 +78,7 @@ Options:
       --remote-config PATH   Remote kubeconfig (default:
                           /etc/rancher/k3s/k3s.yaml).
       --kubeconfig-dest PATH  Where to install the kubeconfig (default:
-                          ~/.kube/config.yaml).
+                          ~/.kube/config).
       --kubeconfig PATH   Use this existing kubeconfig instead of fetching
                           (review-only; mutually exclusive with --host).
       --namespace NS      Target namespace (default: homeassistant).
@@ -203,7 +203,7 @@ fi
 SSH_PORT="${FLAG_SSH_PORT:-22}"
 SSH_KEY="${FLAG_SSH_KEY:-${HOME}/.ssh/id_ed25519}"
 REMOTE_CONFIG="${FLAG_REMOTE_CONFIG:-/etc/rancher/k3s/k3s.yaml}"
-KUBECONFIG_DEST="${FLAG_KUBECONFIG_DEST:-${HOME}/.kube/config.yaml}"
+KUBECONFIG_DEST="${FLAG_KUBECONFIG_DEST:-${HOME}/.kube/config}"
 NAMESPACE="${FLAG_NAMESPACE:-homeassistant}"
 RELEASE_NAME="${FLAG_RELEASE:-homeassistant}"
 SECRET_NAME="${RELEASE_NAME}-secrets"

@@ -43,7 +43,7 @@ env -i PATH="$STUBS:$BASE_PATH" HOME="$H" HC_STUB_LOG="$TESTS_TMP/bs1.log" \
   bash "$BSREPO/scripts/bootstrap-cluster.sh" --host pi@10.0.0.5 >"$TESTS_TMP/bs1.out" 2>&1
 chk $? "T1 full bootstrap exits 0"
 
-KC_DEST="$H/.kube/config.yaml"
+KC_DEST="$H/.kube/config"
 [ -f "$H/.ssh/id_ed25519" ]; chk $? "T1 ssh key generated"
 [ "$(stat -c %a "$H/.ssh")" = "700" ]; chk $? "T1 ~/.ssh mode 700"
 [ "$(wc -l < "$AK")" = "1" ]; chk $? "T1 authorized_keys has exactly the key"
@@ -114,7 +114,7 @@ env -i PATH="$STUBS:$BASE_PATH" HOME="$H3" HC_STUB_LOG="$TESTS_TMP/bs3.log" \
   bash "$BSREPO/scripts/bootstrap-cluster.sh" --host pi@10.0.0.5 >"$TESTS_TMP/bs3.out" 2>&1
 chk $? "T3 sudo-cat fallback succeeds"
 chk_grep "$TESTS_TMP/bs3.log" "sudo cat" "T3 sudo cat used over ssh"
-chk_grep "$H3/.kube/config.yaml" "https://10.0.0.5:6443" "T3 fetched kubeconfig rewritten"
+chk_grep "$H3/.kube/config" "https://10.0.0.5:6443" "T3 fetched kubeconfig rewritten"
 
 # ============================== T4: review-only, NodePort fallback ===========
 fresh_repo "$BSREPO"
