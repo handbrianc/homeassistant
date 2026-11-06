@@ -1,0 +1,76 @@
+# Spec Delta: installer-cli
+
+## ADDED Requirements
+
+### Requirement: Cluster bootstrap
+
+The project SHALL ship a script that bootstraps cluster access from the
+client host and generates a cluster-aware installer configuration, so that
+`helm`/`kubectl` work and `install.sh`/`update.sh` run without manual
+configuration.
+
+#### Scenario: Kubeconfig fetched from the control plane
+- **WHEN** the script runs with `--host [user@]control-plane`
+- **THEN** it fetches the k3s kubeconfig (`/etc/rancher/k3s/k3s.yaml` by
+  default) via scp, falling back to `ssh host "sudo cat ..."` when the file is
+  not directly readable, rewrites any `127.0.0.1`/`localhost` server URL to
+  the control-plane address (preserving the port), installs it at the
+  kubeconfig destination with mode 600, and validates cluster access with
+  `kubectl get nodes` before proceeding
+
+#### Scenario: Passwordless SSH to the control plane
+- **WHEN** the script runs with `--host` and the local SSH key is missing
+- **THEN** it generates an ed25519 key without passphrase, installs the public
+  key into the control-plane host's `~/.ssh/authorized_keys` idempotently (no
+  duplicates on re-run), first trying key-based (batch) auth and falling back
+  to one interactive authentication, and verifies that passwordless SSH works
+  before fetching anything
+
+#### Scenario: Cluster review derives chart values
+- **WHEN** the cluster is reachable
+- **THEN** the script derives values compatible with the cluster: node
+  architecture (empty + warning when nodes are mixed-arch), the default
+  storage class, LoadBalancer capability (assigned LoadBalancer ingress IPs or
+  an `svclb` DaemonSet) with a NodePort fallback otherwise, an available
+  ingress class (Traefik preferred), the live release's image tag when the
+  release already exists, the existing PVC's size and storage class, and the
+  control-plane timezone (when SSH was used)
+
+#### Scenario: Existing release state wins
+- **WHEN** a Helm release with the configured name already exists in the
+  namespace
+- **THEN** `IMAGE_TAG` is taken from the live release (not the chart default)
+  and `STORAGE_SIZE`/`STORAGE_CLASS` come from the existing PVC so an update
+  never shrinks or moves storage
+
+#### Scenario: .env generated with backup
+- **WHEN** configuration is written
+- **THEN** an existing `.env` is first backed up to
+  `.env.backup-<timestamp>` (`.N`-suffixed on same-second collisions), the new
+  `.env` contains every variable from
+  `.env.example` with cluster-derived values, every written value is checked
+  to be YAML/shell-safe, and values containing spaces are double-quoted
+
+#### Scenario: Secrets scaffolded without leaking values
+- **WHEN** the secrets file is missing
+- **THEN** it is scaffolded from `secrets.env.example` with mode 600; when it
+  exists, only its key *names* are reported (cluster secret keys too), never
+  any value
+
+#### Scenario: Review-only mode
+- **WHEN** the script runs without `--host` and kubectl already works
+- **THEN** the SSH/fetch stages are skipped and only the review and
+  configuration stages run
+
+#### Scenario: Unusable kubeconfig is fatal
+- **WHEN** the fetched kubeconfig does not validate against the cluster
+  (`kubectl get nodes` fails)
+- **THEN** the script aborts with a hint about the k3s `--tls-san` setting
+  and the kubeconfig file is left in place for inspection
+
+#### Scenario: End state ready for the installers
+- **WHEN** the script completes successfully
+- **THEN** `kubectl` and `helm` work against the cluster using the generated
+  kubeconfig, `.env` is complete for `install.sh`/`update.sh`, the printed
+  next steps name those scripts, and `--install` chains directly into
+  `scripts/install.sh`

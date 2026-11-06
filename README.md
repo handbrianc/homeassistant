@@ -7,7 +7,7 @@ flowing through **environment variables** ([12-factor](docs/12-factor.md)).
 
 ```text
 charts/homeassistant/   Helm chart (single-replica StatefulSet, PVC, env-driven config)
-scripts/                install.sh / update.sh (+ shared lib) — Linux & macOS (Homebrew) bash
+scripts/                bootstrap-cluster.sh / install.sh / update.sh / install-prereqs.sh
 docs/                   12-factor mapping, RPi4/k3s node preparation
 openspec/               OpenSpec specs & changes (spec-driven development)
 .env.example            installer configuration example (copy to .env)
@@ -55,13 +55,18 @@ helm version && kubectl version --client
 ## Quickstart
 
 ```bash
-# 1. Configure the installer (namespace, image tag, storage, exposure, ...)
-cp .env.example .env
-$EDITOR .env
+# 0. One-time: bootstrap cluster access + configuration
+#    Sets up passwordless SSH to the control plane, fetches the k3s
+#    kubeconfig (rewriting 127.0.0.1 to the control-plane address),
+#    reviews the cluster (nodes, storage, LoadBalancer, ingress, existing
+#    release/PVC) and writes .env + scaffolds secrets.env from it.
+./scripts/bootstrap-cluster.sh --host pi@192.168.1.10
 
-# 2. Provide Home Assistant credentials (optional but recommended)
-cp secrets.env.example secrets.env
+# 1. Fill in the scaffolded secrets.env with real credentials
 $EDITOR secrets.env
+
+# 2. Preview everything (no cluster access, no helm/kubectl needed)
+./scripts/install.sh --dry-run
 
 # 3. Install
 ./scripts/install.sh
@@ -70,9 +75,19 @@ $EDITOR secrets.env
 ./scripts/update.sh
 ```
 
-Preview everything first with `./scripts/install.sh --dry-run` — it prints the
-generated Helm values and every command it would run, without touching the
-cluster (no helm/kubectl needed).
+`bootstrap-cluster.sh` is idempotent: re-runs refresh the review, never
+duplicate SSH keys, and back up an existing `.env` first. Without `--host`
+it runs review-only against an already-working `kubectl`; `--install` chains
+straight into `install.sh`. Prefer hand-tuning? Skip it and configure
+manually:
+
+```bash
+cp .env.example .env && $EDITOR .env
+cp secrets.env.example secrets.env && $EDITOR secrets.env
+```
+
+The bootstrap report shows every cluster-derived value and the KUBECONFIG
+export line for ad-hoc `helm`/`kubectl` use.
 
 ## How configuration works (12-factor)
 
