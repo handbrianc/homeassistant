@@ -65,10 +65,10 @@ require_cmds() {
     log_error "Required command not found: $_rq_cmd"
     case "$_rq_cmd" in
       helm)
-        log_error "  hint: curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-4 | bash  (Linux)  |  brew install helm  (macOS/Homebrew)"
+        log_error "  hint: scripts/install-prereqs.sh installs it — or: get-helm-4 script (Linux) / brew install helm (macOS/Homebrew)"
         ;;
       kubectl)
-        log_error "  hint: k8s apt repo / dl.k8s.io binary (see README, Prerequisites)  (Linux)  |  brew install kubectl (macOS/Homebrew)"
+        log_error "  hint: scripts/install-prereqs.sh installs it — or: dl.k8s.io binary (Linux) / brew install kubectl (macOS/Homebrew)"
         ;;
       bash)
         log_error "  hint: brew install bash       (macOS/Homebrew; scripts need bash 3.2+)"

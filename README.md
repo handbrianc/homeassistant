@@ -26,7 +26,17 @@ secrets.env.example     Home Assistant secrets example (copy to secrets.env)
 `kubeconfig` access to the cluster must be configured before installing
 (k3s writes it to `/etc/rancher/k3s/k3s.yaml` on the server node).
 
-Install on Linux (Ubuntu/Debian shown; the same two binaries work on any distro):
+Or let the repository do it:
+
+```bash
+./scripts/install-prereqs.sh          # installs everything below
+./scripts/install-prereqs.sh --check  # verify only, installs nothing
+```
+
+It is idempotent, works on Linux and macOS, favors **Homebrew** on macOS
+(installing Homebrew itself when absent), and on Linux installs official
+upstream binaries (helm from get.helm.sh, kubectl from dl.k8s.io,
+sha256-verified). Manual install on Linux (Ubuntu/Debian shown):
 
 ```bash
 # Helm (official installer script; installs to /usr/local/bin via sudo)

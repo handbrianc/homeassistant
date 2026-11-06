@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-11-06
+goal: Portable prerequisites installer for helm/kubectl/bash/git/curl on Linux
+  and macOS (Homebrew-favored)
