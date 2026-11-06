@@ -86,6 +86,8 @@ printf 'CERTDATA\n' > "$tlscert"; printf 'KEYDATA\n' > "$tlskey"
   printf 'INGRESS_ENABLED=true\n'
   printf 'INGRESS_CLASS=traefik\n'
   printf 'INGRESS_TLS_ENABLED=true\n'
+  printf 'INGRESS_TLS_CERTIFICATE=true\n'
+  printf 'INGRESS_TLS_ISSUER=letsencrypt-prod\n'
   printf 'INGRESS_TLS_CERT_FILE=%s\n' "$tlscert"
   printf 'INGRESS_TLS_KEY_FILE=%s\n' "$tlskey"
   printf 'INGRESS_TRUSTED_PROXIES=10.42.0.0/16\n'
@@ -100,6 +102,10 @@ chk_regex "$TESTS_TMP/dry6.out" '^    -$' "catch-all rule rendered (no host key)
 chk_grep "$TESTS_TMP/dry6.out" 'secretName: "homeassistant-tls"' "tls secretName rendered"
 chk_grep "$TESTS_TMP/dry6.out" '- "10.42.0.0/16"' "trusted proxies rendered"
 chk_grep "$TESTS_TMP/dry6.out" 'host=<catch-all>' "config line shows catch-all host"
+chk_grep "$TESTS_TMP/dry6.out" 'certificate:' "certificate block rendered (dry-run)"
+chk_grep "$TESTS_TMP/dry6.out" 'name: "letsencrypt-prod"' "certificate issuerRef rendered (dry-run)"
+chk_nogrep "$TESTS_TMP/dry6.out" "cert-manager.io/cluster-issuer" "shim annotation suppressed (dry-run)"
+chk_grep "$TESTS_TMP/dry6.out" "cert=true" "config line shows certificate mode"
 
 # with the mock toolchain, dry-run also renders the full manifests
 env -i PATH="$STUBS:$BASE_PATH" HOME="$TESTS_TMP/home" HC_STUB_LOG="$TESTS_TMP/dry7.log" \

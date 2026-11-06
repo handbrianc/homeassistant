@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-11-06
+goal: Chart renders a cert-manager Certificate for the ingress TLS secret;
+  bootstrap defaults it on when the CRDs are present

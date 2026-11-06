@@ -176,6 +176,7 @@ STORAGE_CLASS=longhorn; STORAGE_SIZE=8Gi; SERVICE_TYPE=LoadBalancer;
 SERVICE_PORT=8123; LOADBALANCER_IP=1.2.3.4; NODE_PORT=;
 INGRESS_ENABLED=true; INGRESS_CLASS=traefik; INGRESS_HOST=ha.example.com;
 INGRESS_TLS_ENABLED=true; INGRESS_TLS_SECRET_NAME=ha-tls; INGRESS_TLS_ISSUER=letsencrypt-prod;
+INGRESS_TLS_CERTIFICATE=false;
 INGRESS_TRUSTED_PROXIES=10.42.0.0/16,10.43.0.0/16;
 HOST_NETWORK=true; render_values_file '$vals'"
 librun_stub "$_rvf" >/dev/null 2>&1
@@ -227,6 +228,29 @@ grep -q '^    -$' "$vals3"
 chk $? "hostless render: dash-only list entry"
 chk_grep "$vals3" 'secretName: "homeassistant-tls"' "hostless render: default TLS secret name <release>-tls"
 
+# Certificate mode: issuer set -> ingress.certificate block, shim annotation
+# suppressed; kind defaults to ClusterIssuer, overridable; no issuer -> skip.
+vals4="$TESTS_TMP/vals-cert.yaml"
+librun_stub "SECRETS_FILE=/x; NAMESPACE=ns; SECRET_NAME=ns-secrets; create_or_update_secret; apply_defaults; ENV_FROM_SECRET=''; INGRESS_ENABLED=true; INGRESS_HOST=ha.example.com; INGRESS_TLS_ENABLED=true; INGRESS_TLS_CERTIFICATE=true; INGRESS_TLS_ISSUER=letsencrypt-prod; render_values_file '$vals4'" >/dev/null 2>&1
+chk_grep "$vals4" 'certificate:' "certificate mode: block rendered"
+chk_grep "$vals4" 'name: "letsencrypt-prod"' "certificate mode: issuerRef name"
+chk_grep "$vals4" 'kind: "ClusterIssuer"' "certificate mode: default issuer kind"
+chk_grep "$vals4" '- "ha.example.com"' "certificate mode: dnsNames from INGRESS_HOST"
+chk_grep "$vals4" 'secretName: "homeassistant-tls"' "certificate mode: secretName shared with ingress"
+! grep -qF 'cert-manager.io/cluster-issuer' "$vals4"
+chk $? "certificate mode: cluster-issuer annotation suppressed"
+vals5="$TESTS_TMP/vals-cert-kind.yaml"
+librun_stub "SECRETS_FILE=/x; NAMESPACE=ns; SECRET_NAME=ns-secrets; create_or_update_secret; apply_defaults; ENV_FROM_SECRET=''; INGRESS_TLS_ENABLED=true; INGRESS_TLS_CERTIFICATE=true; INGRESS_TLS_ISSUER=letsencrypt-prod; INGRESS_TLS_ISSUER_KIND=Issuer; render_values_file '$vals5'" >/dev/null 2>&1
+chk_grep "$vals5" 'kind: "Issuer"' "certificate mode: issuer kind override"
+vals6="$TESTS_TMP/vals-cert-noissuer.yaml"
+librun_stub "SECRETS_FILE=/x; NAMESPACE=ns; SECRET_NAME=ns-secrets; create_or_update_secret; apply_defaults; ENV_FROM_SECRET=''; INGRESS_TLS_ENABLED=true; INGRESS_TLS_CERTIFICATE=true; render_values_file '$vals6'" >/dev/null 2>&1
+! grep -qF 'certificate:' "$vals6"
+chk $? "certificate mode without issuer: no certificate block"
+expect_fail "render rejects bad INGRESS_TLS_CERTIFICATE" env HC_VAL=maybe bash -c \
+  '. "$0/scripts/lib/common.sh"; SECRETS_FILE=/x; NAMESPACE=ns; SECRET_NAME=ns-secrets; INGRESS_ENABLED=true; INGRESS_TLS_ENABLED=true; HOST_NETWORK=false; INGRESS_TLS_CERTIFICATE="$HC_VAL"; render_values_file /dev/null' "$REPO_ROOT"
+grep -q "INGRESS_TLS_CERTIFICATE must be 'true' or 'false'" "$TESTS_TMP/expect-fail.out"
+chk $? "certificate bool message names the variable"
+
 section "ingress_tls_secret_name"
 [ "$(librun "RELEASE_NAME=rel; INGRESS_TLS_SECRET_NAME=; ingress_tls_secret_name")" = "rel-tls" ]
 chk $? "TLS secret name defaults to <release>-tls"
@@ -263,6 +287,15 @@ printf '%s' "$_tls_cm" | grep -qF "managed by cert-manager"
 chk $? "issuer set: cert-manager path noted"
 ! printf '%s' "$_tls_cm" | grep -qF 'self-signed'
 chk $? "issuer set: no self-signed warning"
+_tls_certres="$(librun_stub "SECRETS_FILE=/x; NAMESPACE=ns; SECRET_NAME=ns-secrets; RELEASE_NAME=rel; INGRESS_TLS_ENABLED=true; INGRESS_TLS_CERTIFICATE=true; INGRESS_TLS_ISSUER=letsencrypt-prod; create_or_update_tls_secret" 2>&1)"
+printf '%s' "$_tls_certres" | grep -qF "chart's Certificate resource"
+chk $? "certificate mode: Certificate-resource message"
+_tls_noissuer="$(librun_stub "SECRETS_FILE=/x; NAMESPACE=ns; SECRET_NAME=ns-secrets; RELEASE_NAME=rel; INGRESS_TLS_ENABLED=true; INGRESS_TLS_CERTIFICATE=true; create_or_update_tls_secret" 2>&1)"
+printf '%s' "$_tls_noissuer" | grep -qF "no Certificate resource is rendered"
+chk $? "certificate mode without issuer: missing-issuer warning"
+_tls_both="$(HC_STUB_LOG="$TESTS_TMP/tls3.log" librun_stub "SECRETS_FILE=/x; NAMESPACE=ns; SECRET_NAME=ns-secrets; RELEASE_NAME=rel; INGRESS_TLS_ENABLED=true; INGRESS_TLS_CERTIFICATE=true; INGRESS_TLS_ISSUER=letsencrypt-prod; INGRESS_TLS_CERT_FILE='$TESTS_TMP/tls.pem'; INGRESS_TLS_KEY_FILE='$TESTS_TMP/tls.key'; create_or_update_tls_secret" 2>&1)"
+printf '%s' "$_tls_both" | grep -qF "cert-manager renewals will overwrite"
+chk $? "certificate mode with files: overwrite warning"
 
 section "dry_run_render_manifests"
 _vals="$TESTS_TMP/drm-values.yaml"

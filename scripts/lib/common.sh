@@ -20,6 +20,7 @@
 #   SERVICE_PORT LOADBALANCER_IP NODE_PORT INGRESS_ENABLED INGRESS_CLASS
 #   INGRESS_HOST INGRESS_TLS_ENABLED INGRESS_TLS_SECRET_NAME
 #   INGRESS_TLS_CERT_FILE INGRESS_TLS_KEY_FILE INGRESS_TLS_ISSUER
+#   INGRESS_TLS_CERTIFICATE INGRESS_TLS_ISSUER_KIND
 #   INGRESS_TRUSTED_PROXIES
 #   HOST_NETWORK SECRETS_FILE DRY_RUN HC_DRY_RUN SECRET_NAME
 #   ENV_FROM_SECRET
@@ -179,6 +180,8 @@ apply_defaults() {
   : "${INGRESS_TLS_CERT_FILE:=}"
   : "${INGRESS_TLS_KEY_FILE:=}"
   : "${INGRESS_TLS_ISSUER:=}"
+  : "${INGRESS_TLS_CERTIFICATE:=false}"
+  : "${INGRESS_TLS_ISSUER_KIND:=}"
   : "${INGRESS_TRUSTED_PROXIES:=}"
   : "${HOST_NETWORK:=false}"
   # --- Secrets
@@ -248,6 +251,8 @@ assert_all_values_safe() {
   assert_yaml_safe INGRESS_TLS_CERT_FILE   "${INGRESS_TLS_CERT_FILE:-}"
   assert_yaml_safe INGRESS_TLS_KEY_FILE    "${INGRESS_TLS_KEY_FILE:-}"
   assert_yaml_safe INGRESS_TLS_ISSUER      "${INGRESS_TLS_ISSUER:-}"
+  assert_yaml_safe INGRESS_TLS_CERTIFICATE "$INGRESS_TLS_CERTIFICATE"
+  assert_yaml_safe INGRESS_TLS_ISSUER_KIND "${INGRESS_TLS_ISSUER_KIND:-}"
   assert_yaml_safe INGRESS_TRUSTED_PROXIES "${INGRESS_TRUSTED_PROXIES:-}"
   assert_yaml_safe HOST_NETWORK     "$HOST_NETWORK"
   assert_yaml_safe SECRETS_FILE     "$SECRETS_FILE"
@@ -354,15 +359,32 @@ create_or_update_tls_secret() {
   if [ "$_tls_enabled" != "true" ]; then
     return 0
   fi
+  # Tolerate unset here (the strict parse lives in render_values_file);
+  # scripts always run apply_defaults first, but unit snippets may not.
+  _tls_certificate="false"
+  if ! _tls_certificate="$(parse_bool "${INGRESS_TLS_CERTIFICATE:-false}")"; then
+    die "INGRESS_TLS_CERTIFICATE must be 'true' or 'false' (case-insensitive), got: '$INGRESS_TLS_CERTIFICATE'"
+  fi
   _tls_name="$(ingress_tls_secret_name)"
   if [ -z "$INGRESS_TLS_CERT_FILE" ] && [ -z "$INGRESS_TLS_KEY_FILE" ]; then
     if [ -n "$INGRESS_TLS_ISSUER" ]; then
-      log_info "Ingress TLS: certificates are managed by cert-manager (cluster-issuer '$INGRESS_TLS_ISSUER')."
+      if [ "$_tls_certificate" = "true" ]; then
+        log_info "Ingress TLS: cert-manager issues the certificate via the chart's Certificate resource (issuer '$INGRESS_TLS_ISSUER' / kind '${INGRESS_TLS_ISSUER_KIND:-ClusterIssuer}'), storing it in Secret '$_tls_name'."
+      else
+        log_info "Ingress TLS: certificates are managed by cert-manager (cluster-issuer '$INGRESS_TLS_ISSUER')."
+      fi
     else
-      log_warn "Ingress TLS enabled without INGRESS_TLS_CERT_FILE/INGRESS_TLS_KEY_FILE and without INGRESS_TLS_ISSUER."
+      if [ "$_tls_certificate" = "true" ]; then
+        log_warn "INGRESS_TLS_CERTIFICATE=true without INGRESS_TLS_ISSUER — no Certificate resource is rendered; set INGRESS_TLS_ISSUER (and optionally INGRESS_TLS_ISSUER_KIND)."
+      else
+        log_warn "Ingress TLS enabled without INGRESS_TLS_CERT_FILE/INGRESS_TLS_KEY_FILE and without INGRESS_TLS_ISSUER."
+      fi
       log_warn "Secret '$_tls_name' must be provisioned (own files, or cert-manager via INGRESS_TLS_ISSUER); until then the ingress controller serves its default self-signed certificate."
     fi
     return 0
+  fi
+  if [ "$_tls_certificate" = "true" ] && [ -n "$INGRESS_TLS_ISSUER" ]; then
+    log_warn "Both a cert/key pair and cert-manager ($INGRESS_TLS_ISSUER) are configured — cert-manager renewals will overwrite Secret '$_tls_name'."
   fi
   if [ -z "$INGRESS_TLS_CERT_FILE" ] || [ -z "$INGRESS_TLS_KEY_FILE" ]; then
     die "INGRESS_TLS_CERT_FILE and INGRESS_TLS_KEY_FILE must be set together (cert='${INGRESS_TLS_CERT_FILE:-<unset>}' key='${INGRESS_TLS_KEY_FILE:-<unset>}')."
@@ -405,6 +427,10 @@ render_values_file() {
   if ! _rvf_tls_enabled="$(parse_bool "$INGRESS_TLS_ENABLED")"; then
     die "INGRESS_TLS_ENABLED must be 'true' or 'false' (case-insensitive), got: '$INGRESS_TLS_ENABLED'"
   fi
+  _rvf_certificate=0
+  if ! _rvf_certificate="$(parse_bool "$INGRESS_TLS_CERTIFICATE")"; then
+    die "INGRESS_TLS_CERTIFICATE must be 'true' or 'false' (case-insensitive), got: '$INGRESS_TLS_CERTIFICATE'"
+  fi
   if [ -n "$SERVICE_PORT" ]; then
     assert_int SERVICE_PORT "$SERVICE_PORT"
   fi
@@ -438,9 +464,21 @@ render_values_file() {
     printf '%s\n' "ingress:"
     printf '  enabled: %s\n' "$_rvf_ingress_enabled"
     if [ -n "$INGRESS_CLASS" ]; then printf '  className: "%s"\n' "$INGRESS_CLASS"; fi
-    if [ -n "$INGRESS_TLS_ISSUER" ]; then
+    if [ -n "$INGRESS_TLS_ISSUER" ] && [ "$_rvf_certificate" != "true" ]; then
       printf '%s\n' "  annotations:"
       printf '    cert-manager.io/cluster-issuer: "%s"\n' "$INGRESS_TLS_ISSUER"
+    fi
+    if [ "$_rvf_tls_enabled" = "true" ] && [ "$_rvf_certificate" = "true" ] && [ -n "$INGRESS_TLS_ISSUER" ]; then
+      printf '%s\n' "  certificate:"
+      printf '%s\n' "    enabled: true"
+      printf '%s\n' "    issuerRef:"
+      printf '      name: "%s"\n' "$INGRESS_TLS_ISSUER"
+      printf '      kind: "%s"\n' "${INGRESS_TLS_ISSUER_KIND:-ClusterIssuer}"
+      if [ -n "$INGRESS_HOST" ]; then
+        printf '%s\n' "    dnsNames:"
+        printf '      - "%s"\n' "$INGRESS_HOST"
+      fi
+      printf '    secretName: "%s"\n' "$(ingress_tls_secret_name)"
     fi
     if [ -n "$INGRESS_TRUSTED_PROXIES" ]; then
       printf '%s\n' "  trustedProxies:"

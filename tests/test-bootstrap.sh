@@ -72,7 +72,9 @@ chk_regex "$BSREPO/.env" '^INGRESS_TLS_KEY_FILE=""$' "T1 no key file by default"
 chk_regex "$BSREPO/.env" '^INGRESS_TLS_ISSUER=""$' "T1 no issuer by default"
 chk_grep "$BSREPO/.env" 'INGRESS_TRUSTED_PROXIES="10.42.0.0/16"' "T1 k3s pod CIDR as trusted proxies"
 chk_grep "$TESTS_TMP/bs1.out" "cert-manager detected" "T1 cert-manager presence reported"
-chk_grep "$TESTS_TMP/bs1.out" "enabled: true, tls: true" "T1 report shows ingress+TLS state"
+chk_grep "$BSREPO/.env" 'INGRESS_TLS_CERTIFICATE="true"' "T1 certificate mode on (cert-manager CRD)"
+chk_regex "$BSREPO/.env" '^INGRESS_TLS_ISSUER_KIND=""$' "T1 issuer kind left default"
+chk_grep "$TESTS_TMP/bs1.out" "enabled: true, tls: true, cert-manager: true" "T1 report shows cert-manager mode"
 chk_grep "$BSREPO/.env" 'SECRETS_FILE="secrets.env"' "T1 SECRETS_FILE set"
 [ "$(find "$BSREPO" -maxdepth 1 -name '.env.backup-*' | wc -l)" = "1" ]; chk $? "T1 exactly one .env backup"
 grep -q 'OLDVALUE=1' "$BSREPO"/.env.backup-* 2>/dev/null
@@ -169,6 +171,7 @@ chk_regex "$BSREPO/.env" '^INGRESS_TLS_ENABLED="false"$' "T4b TLS off"
 chk_regex "$BSREPO/.env" '^INGRESS_TLS_SECRET_NAME=""$' "T4b no TLS secret name"
 chk_regex "$BSREPO/.env" '^INGRESS_TRUSTED_PROXIES=""$' "T4b no trusted proxies"
 chk_grep "$TESTS_TMP/bs4b.out" "No ingress controller detected" "T4b absence reported"
+chk_regex "$BSREPO/.env" '^INGRESS_TLS_CERTIFICATE="false"$' "T4b certificate stays off"
 
 # ============================== T4c: cert-manager absent ======================
 fresh_repo "$BSREPO"
@@ -183,6 +186,7 @@ env -i PATH="$STUBS:$BASE_PATH" HOME="$H4c" KUBECONFIG="$H4c/kc.yaml" \
 chk $? "T4c run exits 0"
 chk_grep "$TESTS_TMP/bs4c.out" "cert-manager not detected" "T4c cert-manager absence reported"
 chk_grep "$TESTS_TMP/bs4c.out" "INGRESS_TLS_CERT_FILE/INGRESS_TLS_KEY_FILE" "T4c file path hint"
+chk_regex "$BSREPO/.env" '^INGRESS_TLS_CERTIFICATE="false"$' "T4c certificate off without CRD"
 
 # ============================== T5: mixed arch ================================
 fresh_repo "$BSREPO"

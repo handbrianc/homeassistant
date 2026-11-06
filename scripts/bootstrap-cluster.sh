@@ -407,6 +407,8 @@ INGRESS_TLS_SECRET_NAME=""
 INGRESS_TLS_CERT_FILE=""
 INGRESS_TLS_KEY_FILE=""
 INGRESS_TLS_ISSUER=""
+INGRESS_TLS_CERTIFICATE="false"
+INGRESS_TLS_ISSUER_KIND=""
 INGRESS_TRUSTED_PROXIES=""
 HOST_NETWORK="false"
 IMAGE_TAG=""
@@ -471,7 +473,9 @@ review_ingress_class() {
     INGRESS_TRUSTED_PROXIES="10.42.0.0/16"
     log_ok "Ingress controller '$INGRESS_CLASS' detected — INGRESS_ENABLED=true with TLS on (catch-all rule; set INGRESS_HOST for a hostname)."
     if kubectl get crd certificates.cert-manager.io >/dev/null 2>&1; then
-      log_info "cert-manager detected — set INGRESS_TLS_ISSUER=<cluster-issuer> in .env for automatic certificates."
+      INGRESS_TLS_CERTIFICATE="true"
+      log_ok "cert-manager detected — INGRESS_TLS_CERTIFICATE=true (the chart renders a Certificate resource)."
+      log_info "Set INGRESS_TLS_ISSUER=<cluster-issuer name> in .env for automatic certificates (INGRESS_TLS_ISSUER_KIND defaults to ClusterIssuer)."
     else
       log_info "cert-manager not detected — for a trusted certificate set INGRESS_TLS_CERT_FILE/INGRESS_TLS_KEY_FILE in .env (or install cert-manager)."
     fi
@@ -616,6 +620,8 @@ write_env_file() {
   assert_yaml_safe INGRESS_TLS_CERT_FILE   "$INGRESS_TLS_CERT_FILE"
   assert_yaml_safe INGRESS_TLS_KEY_FILE    "$INGRESS_TLS_KEY_FILE"
   assert_yaml_safe INGRESS_TLS_ISSUER      "$INGRESS_TLS_ISSUER"
+  assert_yaml_safe INGRESS_TLS_CERTIFICATE "$INGRESS_TLS_CERTIFICATE"
+  assert_yaml_safe INGRESS_TLS_ISSUER_KIND "$INGRESS_TLS_ISSUER_KIND"
   assert_yaml_safe INGRESS_TRUSTED_PROXIES "$INGRESS_TRUSTED_PROXIES"
   assert_yaml_safe HOST_NETWORK      "$HOST_NETWORK"
   assert_yaml_safe SECRETS_FILE      "secrets.env"
@@ -679,6 +685,11 @@ INGRESS_TLS_SECRET_NAME="$INGRESS_TLS_SECRET_NAME"
 INGRESS_TLS_CERT_FILE="$INGRESS_TLS_CERT_FILE"
 INGRESS_TLS_KEY_FILE="$INGRESS_TLS_KEY_FILE"
 INGRESS_TLS_ISSUER="$INGRESS_TLS_ISSUER"
+# With cert-manager (detected at bootstrap): the chart renders a Certificate
+# resource that issues & renews the Secret. Requires INGRESS_TLS_ISSUER;
+# INGRESS_TLS_ISSUER_KIND defaults to ClusterIssuer when empty.
+INGRESS_TLS_CERTIFICATE="$INGRESS_TLS_CERTIFICATE"
+INGRESS_TLS_ISSUER_KIND="$INGRESS_TLS_ISSUER_KIND"
 # CIDRs Home Assistant must trust for X-Forwarded-For — logins through the
 # ingress fail with HTTP 400 without them. Default: k3s pod CIDR.
 INGRESS_TRUSTED_PROXIES="$INGRESS_TRUSTED_PROXIES"
@@ -726,7 +737,7 @@ print_report() {
   log_ok "  STORAGE_CLASS:  ${STORAGE_CLASS:-<cluster default>}"
   log_ok "  STORAGE_SIZE:   $STORAGE_SIZE"
   log_ok "  SERVICE_TYPE:   $SERVICE_TYPE${NODE_PORT:+ (nodePort $NODE_PORT)}"
-  log_ok "  INGRESS_CLASS:  ${INGRESS_CLASS:-<none detected>} (enabled: $INGRESS_ENABLED, tls: $INGRESS_TLS_ENABLED)"
+  log_ok "  INGRESS_CLASS:  ${INGRESS_CLASS:-<none detected>} (enabled: $INGRESS_ENABLED, tls: $INGRESS_TLS_ENABLED, cert-manager: $INGRESS_TLS_CERTIFICATE)"
 
   if [ -n "$LOCAL_SECRET_KEYS" ]; then
     log_ok "  secrets.env keys:       $(printf '%s' "$LOCAL_SECRET_KEYS" | tr '\n' ' ')"

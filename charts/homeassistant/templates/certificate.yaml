@@ -1,0 +1,31 @@
+{{/*
+TLS certificate issued by cert-manager: the Ingress tls block references the
+same Secret (secretName), so cert-manager's issuance and renewal serve the
+ingress directly. Requires the cert-manager CRDs on the cluster; disabled by
+default.
+*/}}
+{{- if .Values.ingress.certificate.enabled -}}
+{{- $fullName := include "homeassistant.fullname" . -}}
+{{- $cert := .Values.ingress.certificate -}}
+{{- $hosts := list -}}
+{{- range .Values.ingress.hosts -}}{{- if .host -}}{{- $hosts = append $hosts .host -}}{{- end -}}{{- end -}}
+{{- $secretName := default (printf "%s-tls" $fullName) $cert.secretName -}}
+{{- $dnsNames := default $hosts $cert.dnsNames -}}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ $fullName }}-certificate
+  labels:
+    {{- include "homeassistant.labels" . | nindent 4 }}
+spec:
+  secretName: {{ $secretName | quote }}
+  issuerRef:
+    name: {{ required "ingress.certificate.issuerRef.name is required when ingress.certificate.enabled is true" $cert.issuerRef.name }}
+    kind: {{ default "ClusterIssuer" $cert.issuerRef.kind }}
+  {{- with $dnsNames }}
+  dnsNames:
+    {{- range . }}
+    - {{ . | quote }}
+    {{- end }}
+  {{- end }}
+{{- end }}

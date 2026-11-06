@@ -48,6 +48,7 @@ else
   chk_grep "$OUT/default.yaml" "homeassistant-secrets" "default envFrom secret wired"
   chk_grep "$OUT/default.yaml" 'path: "/"' "unauthenticated probe path"
   chk_nogrep "$OUT/default.yaml" "kind: Ingress" "no Ingress by default"
+  chk_nogrep "$OUT/default.yaml" "kind: Certificate" "no Certificate by default"
   chk_nogrep "$OUT/default.yaml" "kind: Secret" "no chart-managed Secret by default"
   chk_nogrep "$OUT/default.yaml" "nodePort:" "no nodePort by default"
   chk_nogrep "$OUT/default.yaml" "loadBalancerIP:" "no loadBalancerIP by default"
@@ -85,6 +86,41 @@ else
   [ $? = "0" ]; chk $? "TLS values render"
   chk_grep "$OUT/ingress-tls.yaml" "secretName: ha-tls" "TLS secretName rendered"
   chk_grep "$OUT/ingress-tls.yaml" "tls:" "TLS block rendered"
+
+  _tpl "$OUT/certificate.yaml" --set ingress.certificate.enabled=true \
+    --set ingress.certificate.issuerRef.name=letsencrypt-prod \
+    --set 'ingress.certificate.dnsNames={ha.example.com}'
+  [ $? = "0" ]; chk $? "cert-manager Certificate values render"
+  chk_grep "$OUT/certificate.yaml" "kind: Certificate" "Certificate rendered"
+  chk_grep "$OUT/certificate.yaml" "name: letsencrypt-prod" "issuerRef.name rendered"
+  chk_grep "$OUT/certificate.yaml" "kind: ClusterIssuer" "issuerRef.kind rendered"
+  chk_grep "$OUT/certificate.yaml" 'secretName: "ha-homeassistant-tls"' \
+    "default secretName is <fullname>-tls"
+  chk_grep "$OUT/certificate.yaml" '- "ha.example.com"' "explicit dnsNames quoted"
+
+  _tpl "$OUT/certificate-fallback.yaml" --set ingress.certificate.enabled=true \
+    --set ingress.certificate.issuerRef.name=letsencrypt-prod \
+    --set ingress.hosts[0].host=ha.example.com
+  [ $? = "0" ]; chk $? "Certificate dnsNames fallback renders"
+  chk_grep "$OUT/certificate-fallback.yaml" '- "ha.example.com"' \
+    "dnsNames default to the ingress hosts"
+  chk_grep "$OUT/certificate-fallback.yaml" 'secretName: "ha-homeassistant-tls"' \
+    "fallback secretName is <fullname>-tls"
+
+  _tpl "$OUT/certificate-shared.yaml" --set ingress.enabled=true \
+    --set ingress.certificate.enabled=true \
+    --set ingress.certificate.issuerRef.name=letsencrypt-prod \
+    --set ingress.tls[0].secretName=ha-homeassistant-tls
+  [ $? = "0" ]; chk $? "Certificate + Ingress tls values render"
+  [ "$(grep -c 'secretName:.*ha-homeassistant-tls' "$OUT/certificate-shared.yaml")" = "2" ]
+  chk $? "Certificate and Ingress reference the same Secret (2 refs)"
+  chk_grep "$OUT/certificate-shared.yaml" 'secretName: "ha-homeassistant-tls"' \
+    "Certificate secretName quoted, matching the Ingress tls reference"
+
+  _tpl "$OUT/cert-noissuer.yaml" --set ingress.certificate.enabled=true
+  [ $? != "0" ]; chk $? "empty issuerRef.name fails the render"
+  chk_grep "$OUT/cert-noissuer.yaml" "issuerRef.name is required" \
+    "required-issuer error surfaced in the render output"
 
   _tpl "$OUT/cm-proxies.yaml" --set ingress.enabled=true \
     --set 'ingress.trustedProxies={10.42.0.0/16}'

@@ -147,9 +147,13 @@ and the [design contract](openspec/changes/archive/2026-11-05-initialize-homeass
   provision one, and a catch-all rule when `INGRESS_HOST` is empty (any
   hostname reaching the ingress works, e.g. `https://<node-ip>`). Set
   `INGRESS_HOST=homeassistant.example.com` for a host-specific rule.
-  * **TLS certificates** — either set `INGRESS_TLS_ISSUER` (cert-manager, auto-detected)
-    or provide a PEM pair via `INGRESS_TLS_CERT_FILE`/`INGRESS_TLS_KEY_FILE`
-    (applied as the `<release>-tls` Secret).
+  * **TLS certificates** — with cert-manager (auto-detected) set
+    `INGRESS_TLS_ISSUER`: bootstrap then defaults `INGRESS_TLS_CERTIFICATE=true`
+    and the chart renders a `Certificate` resource that issues and renews the
+    `<release>-tls` Secret (`INGRESS_TLS_ISSUER_KIND` defaults to
+    `ClusterIssuer`). Or provide a PEM pair via
+    `INGRESS_TLS_CERT_FILE`/`INGRESS_TLS_KEY_FILE` (applied as the
+    `<release>-tls` Secret).
   * `INGRESS_TRUSTED_PROXIES` (default: the k3s pod CIDR) seeds Home
     Assistant's `http.trusted_proxies` — without it, logins through the
     ingress fail with HTTP 400.

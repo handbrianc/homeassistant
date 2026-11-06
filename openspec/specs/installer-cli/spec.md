@@ -79,7 +79,24 @@ output.
   `INGRESS_TLS_ISSUER` is empty
 - **THEN** the script warns that the TLS Secret must be provisioned
   externally (or via cert-manager) and that the controller will serve its
-  default self-signed certificate until then, and continues
+  default self-signed certificate until then, and continues; in certificate
+  mode the warning names `INGRESS_TLS_ISSUER` as the missing piece and notes
+  that no Certificate resource is rendered without it
+
+#### Scenario: Certificate resource delegated to cert-manager
+- **WHEN** ingress TLS is enabled with `INGRESS_TLS_CERTIFICATE=true` and
+  `INGRESS_TLS_ISSUER` set
+- **THEN** the generated values enable the chart's cert-manager `Certificate`
+  (`ingress.certificate`) with `issuerRef` (name from `INGRESS_TLS_ISSUER`,
+  kind from `INGRESS_TLS_ISSUER_KIND`, `ClusterIssuer` when empty),
+  `dnsNames` from `INGRESS_HOST` and
+  `secretName` equal to the Ingress `tls` secret name (`<release>-tls`
+  default); the `cert-manager.io/cluster-issuer` Ingress annotation is NOT
+  rendered, so cert-manager does not create a second Certificate via the
+  ingress shim
+- **WHEN** `INGRESS_TLS_CERTIFICATE=true` but `INGRESS_TLS_ISSUER` is empty
+- **THEN** no Certificate values are rendered and the missing-issuer warning
+  is emitted
 
 ### Requirement: Idempotent install
 
@@ -243,9 +260,14 @@ configuration.
   `INGRESS_TRUSTED_PROXIES=10.42.0.0/16` (k3s default pod CIDR, documented as
   adjustable), leaving `INGRESS_HOST` empty for a catch-all rule
 - **AND WHEN** the `certificates.cert-manager.io` CRD is present
-- **THEN** the script reports that setting `INGRESS_TLS_ISSUER` enables
-  automatic certificates; otherwise it reports that cert/key files or
-  cert-manager are needed for a trusted certificate
+- **THEN** the generated configuration additionally defaults
+  `INGRESS_TLS_CERTIFICATE=true` (the chart renders a cert-manager
+  `Certificate` resource), and the script reports that setting
+  `INGRESS_TLS_ISSUER` (with optional `INGRESS_TLS_ISSUER_KIND`) enables
+  automatic certificates
+- **WHEN** the CRD is absent
+- **THEN** `INGRESS_TLS_CERTIFICATE` stays `false` and the script reports
+  that cert/key files or cert-manager are needed for a trusted certificate
 - **WHEN** no ingress controller is detected
 - **THEN** the ingress and its TLS settings stay disabled as before
 

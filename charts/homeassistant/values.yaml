@@ -104,6 +104,16 @@ ingress:
   # CIDRs trusted for X-Forwarded-For (seeded into the bootstrap
   # configuration when enabled). k3s default pod CIDR: 10.42.0.0/16.
   trustedProxies: []
+  # cert-manager Certificate for the ingress TLS secret (requires the
+  # cert-manager CRDs on the cluster). The Secret it issues (secretName) is
+  # the one the Ingress tls block references — keep both names identical.
+  certificate:
+    enabled: false
+    issuerRef:
+      name: ""                  # required when enabled, e.g. letsencrypt-prod
+      kind: ClusterIssuer       # Issuer or ClusterIssuer
+    dnsNames: []                # defaults to the non-empty ingress hosts
+    secretName: ""              # default <fullname>-tls
   hosts:
     - host: homeassistant.local   # empty/absent host = catch-all rule
       paths:
