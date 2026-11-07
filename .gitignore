@@ -48,3 +48,6 @@ Thumbs.db
 # Logs & scratch
 *.log
 tmp/
+
+# Local-only agent orientation (live deployment facts); never publish.
+AGENTS.md

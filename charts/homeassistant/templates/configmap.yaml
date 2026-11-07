@@ -4,6 +4,9 @@ Bootstrap ConfigMap: seed configuration for the FIRST boot of an empty
 pointed the init container at an existing ConfigMap instead.
 */}}
 {{- if and .Values.bootstrapConfig.enabled (empty .Values.bootstrapConfig.existingConfigMap) -}}
+{{- $seedStore := and .Values.ingress.enabled
+                     (not (empty .Values.ingress.trustedProxies))
+                     (eq (include "homeassistant.httpStoreSeedEnabled" .) "true") -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -24,5 +27,39 @@ data:
       {{- range .Values.ingress.trustedProxies }}
         - {{ . | quote }}
       {{- end }}
+{{- end }}
+{{- if $seedStore }}
+  # HA >= 2026.11 keeps HTTP integration settings in this store, not in
+  # configuration.yaml: the YAML http: block is migrated ONCE into a pending
+  # config that runs as a 5-minute trial and is auto-reverted (marked
+  # not_promoted, then a restart) unless promoted in the UI — unreachable on
+  # a headless install, which left fresh installs answering HTTP 400 behind
+  # the ingress forever. Seeding the STABLE slot with exactly what HA's own
+  # HTTP_STORAGE_SCHEMA produces from that YAML block makes the migration a
+  # no-op: HA boots straight into stable with reverse-proxy trust — no
+  # trial, no revert/restart, no UI confirmation. Shape mirrors store
+  # version 3 (verified on 2026.11.0); the seed is only rendered for HA
+  # versions that read it (see httpStoreSeedEnabled) and the init container
+  # never overwrites an existing store.
+  storage-http: |
+    {
+      "version": 3,
+      "minor_version": 1,
+      "key": "http",
+      "data": {
+        "stable": {
+          "server_port": 8123,
+          "cors_allowed_origins": ["https://cast.home-assistant.io"],
+          "use_x_forwarded_for": true,
+          "trusted_proxies": {{ .Values.ingress.trustedProxies | toJson }},
+          "login_attempts_threshold": -1,
+          "ip_ban_enabled": true,
+          "ssl_profile": "intermediate_v6",
+          "use_x_frame_options": true
+        },
+        "pending": null,
+        "yaml_migration_done": false
+      }
+    }
 {{- end }}
 {{- end }}
