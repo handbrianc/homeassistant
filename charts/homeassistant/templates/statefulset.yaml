@@ -55,11 +55,28 @@ spec:
             - /bin/sh
             - -ec
             - |
+              # Per-file seeding: write each seed only when its own target is
+              # missing, so a partially seeded or previously configured
+              # volume still receives what it lacks — and nothing here ever
+              # overwrites live data.
               if [ ! -f /config/configuration.yaml ]; then
                 echo "No /config/configuration.yaml found; seeding from bootstrap ConfigMap"
                 cp /bootstrap-config/configuration.yaml /config/configuration.yaml
               else
-                echo "/config/configuration.yaml already exists; leaving /config untouched"
+                echo "/config/configuration.yaml already exists; leaving it untouched"
+              fi
+              # HA >= 2026.11 keeps HTTP settings in this store, not in
+              # configuration.yaml (the YAML http: block is migrated once into
+              # a 5-minute trial config and then ignored — without a UI
+              # promotion the install answers HTTP 400 behind the ingress).
+              # The seed key only exists when the chart rendered it (ingress +
+              # trusted proxies + HA version supports store v3).
+              if [ -f /bootstrap-config/storage-http ] && [ ! -f /config/.storage/http ]; then
+                echo "No /config/.storage/http found; seeding HTTP config store"
+                mkdir -p /config/.storage
+                cp /bootstrap-config/storage-http /config/.storage/http
+              else
+                echo "/config/.storage/http exists or no seed rendered; leaving the store untouched"
               fi
           volumeMounts:
             - name: config

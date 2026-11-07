@@ -64,3 +64,20 @@ user provides an alternative via bootstrapConfig.existingConfigMap.
 {{- printf "%s-bootstrap-config" (include "homeassistant.fullname" .) }}
 {{- end }}
 {{- end }}
+
+{{/*
+Whether the pinned Home Assistant version supports the HTTP config store
+(/config/.storage/http, store version 3, introduced with 2026.11.0). The
+bootstrap init container seeds that store only when this is true: HA's
+storage loader rejects store files newer than the running version supports
+(UnsupportedStorageVersionError), which would break the http integration on
+older versions. Non-semver tags ("latest", "stable") are assumed current.
+*/}}
+{{- define "homeassistant.httpStoreSeedEnabled" -}}
+{{- $tag := .Values.image.tag | default .Chart.AppVersion | toString -}}
+{{- if regexMatch "^[0-9]+\\.[0-9]+\\.[0-9]+$" $tag -}}
+{{- ternary "true" "false" (semverCompare ">= 2026.11.0" $tag) -}}
+{{- else -}}
+true
+{{- end -}}
+{{- end }}

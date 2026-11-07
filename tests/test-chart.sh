@@ -139,6 +139,57 @@ else
   chk_grep "$OUT/cm-proxies.yaml" '- "10.42.0.0/16"' "trusted proxy CIDR quoted"
   chk_nogrep "$OUT/default.yaml" "trusted_proxies" "no trusted_proxies in default render"
 
+  # HTTP config store seed: HA >= 2026.11 keeps HTTP settings in
+  # /config/.storage/http (stable/pending trial promotion; the YAML http:
+  # block is migrated once, then ignored — an unpromoted trial is reverted
+  # and the install answers HTTP 400 behind the ingress forever). The chart
+  # seeds the store's stable slot directly; version-gated.
+  chk_grep "$OUT/cm-proxies.yaml" "  storage-http: |" \
+    "HTTP config store seed rendered with trustedProxies (2026.11.0)"
+  awk '/^  storage-http: \|/{f=1;next} f{if ($0 !~ /^    /) exit; print substr($0,5)}' \
+    "$OUT/cm-proxies.yaml" >"$OUT/seed.json"
+  [ -s "$OUT/seed.json" ]; chk $? "store seed JSON extracted from the render"
+  jq -e '.version == 3 and .minor_version == 1 and .key == "http"' \
+    "$OUT/seed.json" >/dev/null; chk $? "store seed matches store version 3.1 shape"
+  jq -e '.data.stable.use_x_forwarded_for == true and .data.stable.trusted_proxies == ["10.42.0.0/16"]' \
+    "$OUT/seed.json" >/dev/null; chk $? "store seed stable slot carries reverse-proxy trust"
+  jq -e '.data.pending == null and .data.yaml_migration_done == false' \
+    "$OUT/seed.json" >/dev/null; chk $? "store seed stages no pending trial"
+  jq -e '.data.stable.server_port == 8123 and .data.stable.ssl_profile == "intermediate_v6" and .data.stable.cors_allowed_origins == ["https://cast.home-assistant.io"]' \
+    "$OUT/seed.json" >/dev/null; chk $? "store seed mirrors HA HTTP_STORAGE_SCHEMA defaults"
+  chk_grep "$OUT/cm-proxies.yaml" \
+    '[ -f /bootstrap-config/storage-http ] && [ ! -f /config/.storage/http ]' \
+    "store seed copy runs only when the seed exists and the store is missing"
+  chk_grep "$OUT/cm-proxies.yaml" "mkdir -p /config/.storage" \
+    "init container creates /config/.storage"
+  chk_grep "$OUT/cm-proxies.yaml" "cp /bootstrap-config/storage-http /config/.storage/http" \
+    "store seed copied into the HA config volume"
+  chk_grep "$OUT/cm-proxies.yaml" '[ ! -f /config/configuration.yaml ]' \
+    "configuration.yaml seeding keeps its skip-if-exists guard"
+  chk_grep "$OUT/cm-proxies.yaml" "already exists; leaving it untouched" \
+    "existing configuration.yaml is never overwritten"
+
+  _tpl "$OUT/seed-old.yaml" --set ingress.enabled=true \
+    --set 'ingress.trustedProxies={10.42.0.0/16}' --set image.tag=2026.10.0
+  [ $? = "0" ]; chk $? "pre-store HA version renders"
+  chk_nogrep "$OUT/seed-old.yaml" "  storage-http: |" \
+    "no store seed for HA < 2026.11.0 (its storage loader would reject it)"
+  chk_grep "$OUT/seed-old.yaml" "use_x_forwarded_for: true" \
+    "YAML http: block remains the seeding mechanism pre-store"
+
+  _tpl "$OUT/seed-latest.yaml" --set ingress.enabled=true \
+    --set 'ingress.trustedProxies={10.42.0.0/16}' --set image.tag=latest
+  [ $? = "0" ]; chk $? "non-semver image tag renders"
+  chk_grep "$OUT/seed-latest.yaml" "  storage-http: |" \
+    "non-semver tags are assumed current and seed the store"
+
+  _tpl "$OUT/seed-noproxy.yaml" --set ingress.enabled=true --set ingress.className=traefik
+  [ $? = "0" ]; chk $? "ingress without trustedProxies renders"
+  chk_nogrep "$OUT/seed-noproxy.yaml" "use_x_forwarded_for" \
+    "no http: block without trustedProxies"
+  chk_nogrep "$OUT/seed-noproxy.yaml" "  storage-http: |" \
+    "no store seed without trustedProxies"
+
   _tpl "$OUT/hostnet.yaml" --set hostNetwork=true
   [ $? = "0" ]; chk $? "hostNetwork values render"
   chk_grep "$OUT/hostnet.yaml" "hostNetwork: true" "hostNetwork on"
