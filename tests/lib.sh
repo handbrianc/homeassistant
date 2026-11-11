@@ -7,13 +7,14 @@
 #
 # Test files run WITHOUT `set -e` (failures must be counted, not fatal) and
 # with `set -u`. CLUSTER SAFETY: tests never put real helm/kubectl on PATH —
-# e2e runs use `env -i` with $STUBS FIRST on PATH; see tests/README.md.
+# e2e runs use `env -i` with $STUBS FIRST on PATH, and BASE_PATH (the "system
+# tools" PATH) is built without kubectl/helm so hosts that preinstall them
+# don't leak in; see tests/README.md.
 # =============================================================================
 
 REPO_ROOT="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)" || exit 1
 TESTS_DIR="$REPO_ROOT/tests"
 STUBS="$TESTS_DIR/stubs"
-BASE_PATH="/usr/bin:/bin"
 
 T_PASS=0
 T_FAIL=0
@@ -21,6 +22,26 @@ T_SKIP=0
 
 TESTS_TMP="$(mktemp -d "${TMPDIR:-/tmp}/ha-tests.XXXXXX")" || exit 1
 trap 'rm -rf "$TESTS_TMP"' EXIT
+
+# BASE_PATH — hermetic "system tools" PATH: a directory of symlinks to every
+# executable in /usr/bin and /bin EXCEPT the cluster tools. Hosts may
+# preinstall kubectl or helm there (GitHub Actions runners ship kubectl in
+# /usr/bin), and tests that exercise the missing-tool paths require those
+# commands to be genuinely absent. Test files see BASE_PATH exactly as
+# before; $STUBS still comes first wherever stubbed behavior is wanted.
+SAFE_BIN="$TESTS_TMP/safebin"
+mkdir -p "$SAFE_BIN" || exit 1
+for _safe_dir in /usr/bin /bin; do
+  [ -d "$_safe_dir" ] || continue
+  for _safe_file in "$_safe_dir"/*; do
+    _safe_base="${_safe_file##*/}"
+    case $_safe_base in
+      kubectl|helm) continue ;;
+    esac
+    [ -e "$SAFE_BIN/$_safe_base" ] || ln -s "$_safe_file" "$SAFE_BIN/$_safe_base" 2>/dev/null
+  done
+done
+BASE_PATH="$SAFE_BIN"
 
 chk() { # chk RC MSG — RC 0 counts as pass
   if [ "$1" = "0" ]; then

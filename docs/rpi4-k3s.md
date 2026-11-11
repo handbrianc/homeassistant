@@ -79,7 +79,7 @@ scripts honor it.
 ## 7. Storage options
 
 | Option | When | Setup |
-|---|---|---|
+| --- | --- | --- |
 | `local-path` (k3s default) | single server node, simplest | nothing — chart default (`STORAGE_CLASS=` empty) |
 | **Longhorn** | replicated storage across 2+ nodes, survives node loss | `kubectl apply -f longhorn.yaml` per [docs](https://longhorn.io/docs/); needs ~512Mi RAM/node — comfortable on 8GB nodes, tight on 4GB |
 
@@ -111,7 +111,7 @@ setups, MQTT-based discovery or an ESPHome-style integration is more robust.
 ## 10. Node sizing guidance
 
 | Cluster | Recommendation |
-|---|---|
+| --- | --- |
 | 1× Pi4 4GB | fine for HA + local-path; skip Longhorn; keep recorder DB small (or external DB) |
 | 2-3× Pi4 8GB | comfortable: Longhorn replicated PVC, external Postgres on the cluster, Traefik ingress |
 | any | `resources` in the chart already fit 4GB nodes; tune via `.env`/extra values, not chart edits |
