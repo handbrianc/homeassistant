@@ -1,0 +1,45 @@
+# =============================================================================
+# .github/workflows/ci.yml — CI gate for pushes and pull requests.
+#
+# Runs the same gates as local development (see AGENTS.md / tests/README.md):
+#   1. shellcheck -x over scripts/, scripts/lib/, tests/ and the committed stubs
+#   2. tests/run-tests.sh — the bash -n syntax gate, the script->test coverage
+#      check and the full dry-run/mock-only suite (never touches a cluster)
+#
+# helm is installed so the chart lint/template contract tests run instead of
+# SKIPping; kubectl is not needed — every cluster call is served by the
+# committed stubs in tests/stubs/ inside `env -i` environments, so CI needs
+# no cluster access either.
+#
+# Release tags are cut by a human, never from CI.
+# =============================================================================
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: shellcheck + test suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      - name: Install helm (chart lint/template contract tests)
+        uses: azure/setup-helm@v5
+        with:
+          # Pin to the version the local baseline was audited with.
+          version: v4.3.1
+
+      - name: shellcheck (scripts, libs, tests, stubs)
+        run: shellcheck -x scripts/*.sh scripts/lib/*.sh tests/*.sh tests/stubs/*
+
+      - name: Test suite (bash -n + coverage + all tests)
+        run: tests/run-tests.sh

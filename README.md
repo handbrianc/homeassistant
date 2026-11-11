@@ -7,8 +7,11 @@ flowing through **environment variables** ([12-factor](docs/12-factor.md)).
 
 ```text
 charts/homeassistant/   Helm chart (single-replica StatefulSet, PVC, env-driven config)
-scripts/                bootstrap-cluster.sh / install.sh / update.sh / install-prereqs.sh
+scripts/                bootstrap-cluster.sh / install.sh / update.sh /
+                        uninstall.sh / install-prereqs.sh
 docs/                   12-factor mapping, RPi4/k3s node preparation
+CONTRIBUTING.md         development setup, gates and conventions
+CHANGELOG.md            notable changes per date
 openspec/               OpenSpec specs & changes (spec-driven development)
 .env.example            installer configuration example (copy to .env)
 secrets.env.example     Home Assistant secrets example (copy to secrets.env)
@@ -17,7 +20,7 @@ secrets.env.example     Home Assistant secrets example (copy to secrets.env)
 ## Prerequisites
 
 | Tool | Linux | macOS (Homebrew) |
-|---|---|---|
+| --- | --- | --- |
 | bash 3.2+ (Homebrew bash recommended on macOS) | system | `brew install bash` |
 | Helm v3 or v4 | one-liner below | `brew install helm` |
 | kubectl (within 1 minor of your cluster) | one-liner below | `brew install kubectl` |
@@ -122,7 +125,7 @@ chart never overwrites an existing configuration**.
 ## Chart defaults (tuned for Raspberry Pi 4)
 
 | Setting | Default | Why |
-|---|---|---|
+| --- | --- | --- |
 | Controller | StatefulSet, 1 replica | HA is stateful; RWO-PVC-safe rollouts |
 | Image | `ghcr.io/home-assistant/home-assistant:2026.11.0` | official, multi-arch (arm64) |
 | Persistence | 5Gi PVC at `/config`, cluster-default storage class | k3s `local-path`; set `STORAGE_CLASS=longhorn` for replication |
@@ -175,7 +178,7 @@ and the [design contract](openspec/changes/archive/2026-11-05-initialize-homeass
 ## Troubleshooting
 
 | Symptom | Fix |
-|---|---|
+| --- | --- |
 | Service `EXTERNAL-IP` stuck `<pending>` | no LB implementation — use `SERVICE_TYPE=NodePort`, or install MetalLB |
 | Pod `CrashLoopBackOff` early on | check `kubectl logs`; first boot on Pi4 can take minutes — the startup probe budgets 5 min |
 | `!env_var` resolves empty | the key is missing from `secrets.env`/the Secret — re-run `./scripts/install.sh` after editing, or set a default: `!env_var KEY default` |
